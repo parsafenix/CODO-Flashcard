@@ -1,0 +1,12 @@
+node_modules/
+dist/
+src-tauri/target/
+DOCO-Installer.zip
+Install package/
+map.txt
+.vscode/
+.DS_Store
+Thumbs.db
+*.log
+branding/fonts/
+src/assets/branding/fonts/
