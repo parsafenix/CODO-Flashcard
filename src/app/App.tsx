@@ -10,6 +10,7 @@ import { DeckLibraryPage } from "../features/decks/DeckLibraryPage";
 import { SettingsPage } from "../features/settings/SettingsPage";
 import { StudySessionPage } from "../features/study/StudySessionPage";
 import { api } from "../lib/api";
+import { I18nProvider, useI18n } from "../lib/i18n";
 import type { AppSettings } from "../lib/types";
 import { AppContext } from "./AppContext";
 import { useAppContext } from "./AppContext";
@@ -18,6 +19,7 @@ function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
   const { settings, setSettings } = useAppContext();
+  const { t } = useI18n();
   const [reminderVisible, setReminderVisible] = useState(false);
 
   async function syncReminderState() {
@@ -82,38 +84,38 @@ function AppShell() {
             </div>
           </div>
 
-          <nav className="nav-list" aria-label="Primary">
+          <nav className="nav-list" aria-label={t("app.navPrimary")}>
             <NavLink to="/" className={({ isActive }) => (isActive ? "nav-link nav-link--active" : "nav-link")}>
-              Library
+              {t("nav.library")}
             </NavLink>
             <NavLink
               to="/analytics"
               className={({ isActive }) => (isActive ? "nav-link nav-link--active" : "nav-link")}
             >
-              Analytics
+              {t("nav.analytics")}
             </NavLink>
             <NavLink
               to="/settings"
               className={({ isActive }) => (isActive ? "nav-link nav-link--active" : "nav-link")}
             >
-              Settings
+              {t("nav.settings")}
             </NavLink>
           </nav>
         </div>
 
         <div className="sidebar__footer">
           <div className="surface-muted">
-            <div className="surface-muted__label">Current view</div>
+            <div className="surface-muted__label">{t("app.currentView")}</div>
             <div className="surface-muted__value">
               {location.pathname.startsWith("/study")
-                ? "Study session"
+                ? t("app.view.study")
                 : location.pathname.startsWith("/analytics")
-                  ? "Analytics"
-                : location.pathname.startsWith("/settings")
-                  ? "Preferences"
-                  : location.pathname.startsWith("/decks")
-                    ? "Deck details"
-                    : "Library"}
+                  ? t("app.view.analytics")
+                  : location.pathname.startsWith("/settings")
+                    ? t("app.view.settings")
+                    : location.pathname.startsWith("/decks")
+                      ? t("app.view.deck")
+                      : t("app.view.library")}
             </div>
           </div>
         </div>
@@ -123,15 +125,15 @@ function AppShell() {
         {reminderVisible ? (
           <div className="reminder-banner">
             <div>
-              <strong>Reminder</strong>
-              <p>Your reminder time has passed and due review cards are waiting.</p>
+              <strong>{t("app.reminder.title")}</strong>
+              <p>{t("app.reminder.body")}</p>
             </div>
             <div className="dialog-actions">
               <Button variant="secondary" onClick={() => navigate("/")}>
-                Open library
+                {t("app.reminder.openLibrary")}
               </Button>
               <Button variant="ghost" onClick={() => void dismissReminderForToday()}>
-                Dismiss today
+                {t("app.reminder.dismissToday")}
               </Button>
             </div>
           </div>
@@ -190,18 +192,20 @@ export function App() {
 
   return (
     <AppContext.Provider value={{ settings, setSettings, refreshSettings }}>
-      <ToastProvider>
-        <Routes>
-          <Route element={<AppShell />}>
-            <Route index element={<DeckLibraryPage />} />
-            <Route path="analytics" element={<AnalyticsPage />} />
-            <Route path="decks/:deckId" element={<DeckDetailPage />} />
-            <Route path="study/:deckId" element={<StudySessionPage />} />
-            <Route path="settings" element={<SettingsPage />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Route>
-        </Routes>
-      </ToastProvider>
+      <I18nProvider language={settings.ui_language}>
+        <ToastProvider>
+          <Routes>
+            <Route element={<AppShell />}>
+              <Route index element={<DeckLibraryPage />} />
+              <Route path="analytics" element={<AnalyticsPage />} />
+              <Route path="decks/:deckId" element={<DeckDetailPage />} />
+              <Route path="study/:deckId" element={<StudySessionPage />} />
+              <Route path="settings" element={<SettingsPage />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Route>
+          </Routes>
+        </ToastProvider>
+      </I18nProvider>
     </AppContext.Provider>
   );
 }

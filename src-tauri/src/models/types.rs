@@ -38,26 +38,6 @@ pub enum StudyMode {
   Mixed,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub enum PromptLanguage {
-  #[serde(rename = "language_1")]
-  Language1,
-  #[serde(rename = "language_2")]
-  Language2,
-  #[serde(rename = "language_3")]
-  Language3,
-}
-
-impl PromptLanguage {
-  pub fn as_db_field(&self) -> &'static str {
-    match self {
-      Self::Language1 => "language_1",
-      Self::Language2 => "language_2",
-      Self::Language3 => "language_3",
-    }
-  }
-}
-
 impl StudyMode {
   pub fn as_str(&self) -> &'static str {
     match self {
@@ -75,6 +55,97 @@ pub enum Theme {
   Dark,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum UiLanguage {
+  En,
+  Fa,
+  It,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FieldPresetKind {
+  Language,
+  Custom,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FieldPreset {
+  pub id: String,
+  pub label: String,
+  pub kind: FieldPresetKind,
+}
+
+pub fn default_field_presets() -> Vec<FieldPreset> {
+  vec![
+    FieldPreset {
+      id: "persian".to_string(),
+      label: "Persian".to_string(),
+      kind: FieldPresetKind::Language,
+    },
+    FieldPreset {
+      id: "english".to_string(),
+      label: "English".to_string(),
+      kind: FieldPresetKind::Language,
+    },
+    FieldPreset {
+      id: "german".to_string(),
+      label: "German".to_string(),
+      kind: FieldPresetKind::Language,
+    },
+    FieldPreset {
+      id: "italian".to_string(),
+      label: "Italian".to_string(),
+      kind: FieldPresetKind::Language,
+    },
+    FieldPreset {
+      id: "french".to_string(),
+      label: "French".to_string(),
+      kind: FieldPresetKind::Language,
+    },
+    FieldPreset {
+      id: "definition".to_string(),
+      label: "Definition".to_string(),
+      kind: FieldPresetKind::Custom,
+    },
+    FieldPreset {
+      id: "example".to_string(),
+      label: "Example".to_string(),
+      kind: FieldPresetKind::Custom,
+    },
+    FieldPreset {
+      id: "notes".to_string(),
+      label: "Notes".to_string(),
+      kind: FieldPresetKind::Custom,
+    },
+  ]
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckField {
+  pub id: i64,
+  pub deck_id: i64,
+  pub label: String,
+  pub language_code: Option<String>,
+  pub order_index: i64,
+  pub required: bool,
+  pub active: bool,
+  pub field_type: String,
+  pub system_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeckFieldInput {
+  pub id: Option<i64>,
+  pub label: String,
+  pub language_code: Option<String>,
+  pub order_index: i64,
+  pub required: bool,
+  pub active: bool,
+  pub field_type: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeckSummary {
   pub id: i64,
@@ -90,6 +161,9 @@ pub struct DeckSummary {
   pub due_cards: i64,
   pub new_cards: i64,
   pub mastered_cards: i64,
+  pub study_prompt_field_id: Option<i64>,
+  pub study_reveal_field_ids: Vec<i64>,
+  pub fields: Vec<DeckField>,
 }
 
 pub type DeckDetail = DeckSummary;
@@ -98,9 +172,7 @@ pub type DeckDetail = DeckSummary;
 pub struct CreateDeckInput {
   pub name: String,
   pub description: Option<String>,
-  pub language_1_label: Option<String>,
-  pub language_2_label: Option<String>,
-  pub language_3_label: Option<String>,
+  pub fields: Vec<DeckFieldInput>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,9 +180,23 @@ pub struct UpdateDeckInput {
   pub id: i64,
   pub name: String,
   pub description: Option<String>,
-  pub language_1_label: Option<String>,
-  pub language_2_label: Option<String>,
-  pub language_3_label: Option<String>,
+  pub fields: Vec<DeckFieldInput>,
+  #[serde(default)]
+  pub deleted_field_ids: Vec<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CardValueRecord {
+  pub id: i64,
+  pub field_id: i64,
+  pub label: String,
+  pub language_code: Option<String>,
+  pub order_index: i64,
+  pub required: bool,
+  pub active: bool,
+  pub value: String,
+  pub normalized_value: String,
+  pub compact_value: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -123,6 +209,7 @@ pub struct CardRecord {
   pub note: Option<String>,
   pub example_sentence: Option<String>,
   pub tag: Option<String>,
+  pub values: Vec<CardValueRecord>,
   pub created_at: String,
   pub updated_at: String,
   pub last_reviewed_at: Option<String>,
@@ -137,26 +224,22 @@ pub struct CardRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CardValueInput {
+  pub field_id: i64,
+  pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateCardInput {
   pub deck_id: i64,
-  pub language_1: String,
-  pub language_2: String,
-  pub language_3: String,
-  pub note: Option<String>,
-  pub example_sentence: Option<String>,
-  pub tag: Option<String>,
+  pub values: Vec<CardValueInput>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateCardInput {
   pub id: i64,
   pub deck_id: i64,
-  pub language_1: String,
-  pub language_2: String,
-  pub language_3: String,
-  pub note: Option<String>,
-  pub example_sentence: Option<String>,
-  pub tag: Option<String>,
+  pub values: Vec<CardValueInput>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -175,7 +258,7 @@ pub enum CardSort {
   UpdatedDesc,
   CreatedDesc,
   NextReviewAsc,
-  Language1Asc,
+  PrimaryFieldAsc,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -194,13 +277,28 @@ pub struct InvalidImportLine {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportDetectedColumn {
+  pub column_index: usize,
+  pub label: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportColumnMapping {
+  pub column_index: usize,
+  pub field_id: Option<i64>,
+  pub label: Option<String>,
+  pub language_code: Option<String>,
+  pub required: Option<bool>,
+  pub active: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImportPreviewRow {
   pub line_number: usize,
-  pub language_1: String,
-  pub language_2: String,
-  pub language_3: String,
+  pub columns: Vec<String>,
   pub duplicate: bool,
   pub duplicate_reason: Option<String>,
+  pub missing_required_fields: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -209,16 +307,19 @@ pub struct ImportPreviewSummary {
   pub valid: usize,
   pub invalid: usize,
   pub duplicates: usize,
+  pub missing_required: usize,
   pub importable: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImportPreviewResponse {
+  pub detected_columns: Vec<ImportDetectedColumn>,
   pub rows: Vec<ImportPreviewRow>,
   pub invalid_lines: Vec<InvalidImportLine>,
   pub summary: ImportPreviewSummary,
-  pub header_labels: Option<[String; 3]>,
-  pub can_update_existing_labels: bool,
+  pub suggested_new_fields: Vec<DeckFieldInput>,
+  pub unmapped_required_fields: Vec<String>,
+  pub ready_for_commit: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -228,9 +329,6 @@ pub enum ImportTarget {
   New {
     name: String,
     description: Option<String>,
-    language_1_label: Option<String>,
-    language_2_label: Option<String>,
-    language_3_label: Option<String>,
   },
 }
 
@@ -240,6 +338,10 @@ pub struct ImportPreviewRequest {
   pub delimiter: String,
   pub has_header: bool,
   pub target: ImportTarget,
+  #[serde(default)]
+  pub create_fields_from_header: bool,
+  #[serde(default)]
+  pub mappings: Vec<ImportColumnMapping>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -248,7 +350,10 @@ pub struct CommitImportRequest {
   pub delimiter: String,
   pub has_header: bool,
   pub target: ImportTarget,
-  pub apply_header_labels_to_existing: bool,
+  #[serde(default)]
+  pub create_fields_from_header: bool,
+  #[serde(default)]
+  pub mappings: Vec<ImportColumnMapping>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -264,7 +369,8 @@ pub struct ImportCommitResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StudySessionOptions {
   pub deck_id: i64,
-  pub prompt_language: PromptLanguage,
+  pub prompt_field_id: i64,
+  pub reveal_field_ids: Vec<i64>,
   pub mode: StudyMode,
   pub random_order: bool,
   pub reverse_mode: bool,
@@ -281,6 +387,7 @@ pub struct StudyCard {
   pub note: Option<String>,
   pub example_sentence: Option<String>,
   pub tag: Option<String>,
+  pub values: Vec<CardValueRecord>,
   pub status: CardStatus,
   pub next_review_at: Option<String>,
 }
@@ -337,7 +444,7 @@ pub struct SessionSummary {
 #[serde(default)]
 pub struct AppSettings {
   pub theme: Theme,
-  pub default_prompt_language: PromptLanguage,
+  pub ui_language: UiLanguage,
   pub cards_per_session: usize,
   pub default_study_mode: StudyMode,
   pub random_order: bool,
@@ -349,13 +456,14 @@ pub struct AppSettings {
   pub reminder_last_acknowledged_date: Option<String>,
   pub import_delimiter: String,
   pub last_backup_directory: Option<String>,
+  pub field_presets: Vec<FieldPreset>,
 }
 
 impl Default for AppSettings {
   fn default() -> Self {
     Self {
       theme: Theme::Dark,
-      default_prompt_language: PromptLanguage::Language1,
+      ui_language: UiLanguage::En,
       cards_per_session: 20,
       default_study_mode: StudyMode::Mixed,
       random_order: true,
@@ -367,6 +475,7 @@ impl Default for AppSettings {
       reminder_last_acknowledged_date: None,
       import_delimiter: "|".to_string(),
       last_backup_directory: None,
+      field_presets: default_field_presets(),
     }
   }
 }
@@ -383,6 +492,20 @@ impl AppSettings {
     }
     if !valid_reminder_time(&self.reminder_time) {
       self.reminder_time = "18:00".to_string();
+    }
+    if self.field_presets.is_empty() {
+      self.field_presets = default_field_presets();
+    } else {
+      let mut seen = std::collections::HashSet::new();
+      self.field_presets = self
+        .field_presets
+        .into_iter()
+        .filter(|preset| !preset.label.trim().is_empty() && !preset.id.trim().is_empty())
+        .filter(|preset| seen.insert(preset.id.clone()))
+        .collect();
+      if self.field_presets.is_empty() {
+        self.field_presets = default_field_presets();
+      }
     }
     self
   }
@@ -452,6 +575,13 @@ pub struct ProgressPoint {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WeakCardPreviewField {
+  pub label: String,
+  pub value: String,
+  pub is_context: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WeakCardAnalytics {
   pub card_id: i64,
   pub deck_id: i64,
@@ -459,6 +589,7 @@ pub struct WeakCardAnalytics {
   pub language_1: String,
   pub language_2: String,
   pub language_3: String,
+  pub preview_fields: Vec<WeakCardPreviewField>,
   pub status: CardStatus,
   pub wrong_count: i64,
   pub mastery_score: i64,
@@ -550,18 +681,16 @@ pub struct SessionRecord {
 }
 
 #[derive(Debug, Clone)]
-pub struct ParsedImportCard {
+pub struct ParsedImportRow {
   pub line_number: usize,
-  pub language_1: String,
-  pub language_2: String,
-  pub language_3: String,
-  pub dedupe_key: String,
+  pub columns: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct ParsedImportDocument {
-  pub header_labels: Option<[String; 3]>,
-  pub cards: Vec<ParsedImportCard>,
+  pub header_labels: Option<Vec<String>>,
+  pub column_count: usize,
+  pub rows: Vec<ParsedImportRow>,
   pub invalid_lines: Vec<InvalidImportLine>,
 }
 

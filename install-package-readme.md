@@ -1,35 +1,43 @@
 # CODO: Flashcard - Install Package
 
-این پکیج برای نصب نسخه نهایی برنامه آماده شده است.
+This package contains the final offline Windows release for `CODO: Flashcard`.
 
-## محتویات
+## Recommended install method
 
-- `CODO-Flashcard-Setup-v0.1.0-x64.exe`
-  - installer اصلی ویندوز
-  - به علت تنظیم `perMachine`، ویندوز برای نصب دسترسی Administrator درخواست می‌کند
+Run:
+
+- `CODO-Flashcard-Setup-v0.2.0-x64.exe`
+
+This is the main Windows installer. Because the installer is configured for machine-wide installation, Windows may ask for administrator approval during setup.
+
+## Package contents
+
+Top level:
+
+- `CODO-Flashcard-Setup-v0.2.0-x64.exe`
+  - Main NSIS installer
 - `README.md`
-  - همین راهنما
+  - This guide
 - `Data/`
-  - فایل‌های اضافی همین نسخه
-  - نسخه `MSI`
-  - فایل اجرایی standalone
+  - Extra release files for the same version
 
-## روش نصب پیشنهادی
+Inside `Data/`:
 
-1. فایل `CODO-Flashcard-Setup-v0.1.0-x64.exe` را اجرا کنید.
-2. اگر ویندوز درخواست Administrator داد، تایید کنید.
-3. مراحل نصب را ادامه دهید.
-4. بعد از نصب، برنامه را از Start Menu یا Desktop اجرا کنید.
+- `CODO-Flashcard-v0.2.0-x64.msi`
+  - Alternative MSI installer
+- `CODO-Flashcard-v0.2.0-x64.exe`
+  - Standalone release executable
 
-## گزینه‌های داخل پوشه Data
+## Install steps
 
-- `CODO-Flashcard-v0.1.0-x64.msi`
-  - installer جایگزین
-- `CODO-Flashcard-v0.1.0-x64.exe`
-  - اجرای مستقیم نسخه release
+1. Open `CODO-Flashcard-Setup-v0.2.0-x64.exe`
+2. Approve the administrator prompt if Windows shows it
+3. Finish the installer steps
+4. Launch `CODO: Flashcard` from Start Menu or Desktop shortcut
 
-## نکته
+## Notes
 
-- نام نمایشی برنامه داخل خود اپ: `CODO: Flashcard`
-- داده‌های برنامه به صورت local روی سیستم کاربر ذخیره می‌شوند
-- برای استفاده از برنامه نیازی به اینترنت نیست
+- The app is fully local and works offline
+- User data is stored locally on the installed machine
+- No account, internet connection, or external backend is required
+- The display name inside the app is `CODO: Flashcard`

@@ -2,6 +2,12 @@ use sha2::{Digest, Sha256};
 use unicode_normalization::UnicodeNormalization;
 
 #[derive(Debug, Clone)]
+pub struct NormalizedText {
+  pub normalized: String,
+  pub compact: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct NormalizedCardFields {
   pub language_1_normalized: String,
   pub language_2_normalized: String,
@@ -59,23 +65,47 @@ pub fn compact_text(value: &str) -> String {
   normalize_text(value).replace(' ', "")
 }
 
-pub fn normalize_card_fields(language_1: &str, language_2: &str, language_3: &str) -> NormalizedCardFields {
-  let language_1_normalized = normalize_text(language_1);
-  let language_2_normalized = normalize_text(language_2);
-  let language_3_normalized = normalize_text(language_3);
+pub fn normalize_value(value: &str) -> NormalizedText {
+  let normalized = normalize_text(value);
+  let compact = normalized.replace(' ', "");
+  NormalizedText { normalized, compact }
+}
 
-  let language_1_compact = language_1_normalized.replace(' ', "");
-  let language_2_compact = language_2_normalized.replace(' ', "");
-  let language_3_compact = language_3_normalized.replace(' ', "");
-
+pub fn build_dedupe_key(values: &[String]) -> String {
   let mut hasher = Sha256::new();
-  hasher.update(language_1_normalized.as_bytes());
-  hasher.update([0x1F]);
-  hasher.update(language_2_normalized.as_bytes());
-  hasher.update([0x1F]);
-  hasher.update(language_3_normalized.as_bytes());
+  for (index, value) in values.iter().enumerate() {
+    if index > 0 {
+      hasher.update([0x1F]);
+    }
+    hasher.update(value.as_bytes());
+  }
+  format!("{:x}", hasher.finalize())
+}
 
-  let dedupe_key = format!("{:x}", hasher.finalize());
+pub fn normalize_values_tuple(values: &[String]) -> Vec<NormalizedText> {
+  values.iter().map(|value| normalize_value(value)).collect()
+}
+
+pub fn normalize_card_fields(language_1: &str, language_2: &str, language_3: &str) -> NormalizedCardFields {
+  let normalized = normalize_values_tuple(&[
+    language_1.to_string(),
+    language_2.to_string(),
+    language_3.to_string(),
+  ]);
+
+  let language_1_normalized = normalized[0].normalized.clone();
+  let language_2_normalized = normalized[1].normalized.clone();
+  let language_3_normalized = normalized[2].normalized.clone();
+
+  let language_1_compact = normalized[0].compact.clone();
+  let language_2_compact = normalized[1].compact.clone();
+  let language_3_compact = normalized[2].compact.clone();
+
+  let dedupe_key = build_dedupe_key(&[
+    language_1_normalized.clone(),
+    language_2_normalized.clone(),
+    language_3_normalized.clone(),
+  ]);
 
   NormalizedCardFields {
     language_1_normalized,

@@ -9,7 +9,7 @@ use crate::{
   models::types::{ExportDeckInput, ExportFormat},
 };
 
-fn join_columns(columns: [&str; 3], delimiter: &str) -> String {
+fn join_columns(columns: &[String], delimiter: &str) -> String {
   columns.join(delimiter)
 }
 
@@ -21,7 +21,7 @@ pub fn export_deck(connection: &Connection, input: &ExportDeckInput) -> Result<(
       deck_id: input.deck_id,
       search: None,
       filter: Some(crate::models::types::CardFilter::All),
-      sort: Some(crate::models::types::CardSort::Language1Asc),
+      sort: Some(crate::models::types::CardSort::PrimaryFieldAsc),
     },
   )?;
   let output_path = Path::new(&input.output_path);
@@ -30,23 +30,24 @@ pub fn export_deck(connection: &Connection, input: &ExportDeckInput) -> Result<(
     ExportFormat::Txt => {
       let delimiter = input.delimiter.clone().unwrap_or_else(|| "|".to_string());
       let mut lines = Vec::new();
+      let active_fields = deck.fields.iter().filter(|field| field.active).collect::<Vec<_>>();
       if input.include_header.unwrap_or(true) {
         lines.push(join_columns(
-          [
-            deck.language_1_label.as_str(),
-            deck.language_2_label.as_str(),
-            deck.language_3_label.as_str(),
-          ],
+          &active_fields.iter().map(|field| field.label.clone()).collect::<Vec<_>>(),
           &delimiter,
         ));
       }
       for card in cards {
+        let values_by_field = card
+          .values
+          .iter()
+          .map(|value| (value.field_id, value.value.clone()))
+          .collect::<std::collections::HashMap<_, _>>();
         lines.push(join_columns(
-          [
-            card.language_1.as_str(),
-            card.language_2.as_str(),
-            card.language_3.as_str(),
-          ],
+          &active_fields
+            .iter()
+            .map(|field| values_by_field.get(&field.id).cloned().unwrap_or_default())
+            .collect::<Vec<_>>(),
           &delimiter,
         ));
       }

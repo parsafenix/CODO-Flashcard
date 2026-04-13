@@ -1,10 +1,16 @@
 import { useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
+import { useI18n } from "../../lib/i18n";
 
-const exampleText = `Persian | English | Italian
-سلام | Hello | Ciao
-کتاب | Book | Libro`;
+const exampleText = `Persian | English
+سلام | Hello
+
+Persian | English | Italian
+کتاب | Book | Libro
+
+English | Definition | Persian | Example
+book | A written work | کتاب | I bought a new book`;
 
 interface ImportHelpModalProps {
   open: boolean;
@@ -12,6 +18,7 @@ interface ImportHelpModalProps {
 }
 
 export function ImportHelpModal({ open, onClose }: ImportHelpModalProps) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
 
   async function copyExample() {
@@ -25,37 +32,44 @@ export function ImportHelpModal({ open, onClose }: ImportHelpModalProps) {
   }
 
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title="Import guide"
-      description="Use a UTF-8 text file with one flashcard per line and exactly three required columns."
-      width="large"
-    >
+    <Modal open={open} onClose={onClose} title={t("import.guideTitle")} description={t("import.guideDescription")} width="large">
       <div className="import-help">
         <div className="surface-muted">
-          <div className="surface-muted__label">How it works</div>
+          <div className="surface-muted__label">{t("import.helpHowItWorks")}</div>
+          <p>{t("import.helpIntro")}</p>
           <ul className="simple-list">
-            <li>Each line creates one card.</li>
-            <li>Use the pipe character `|` to separate values.</li>
-            <li>The expected v1 format is `Persian | English | Italian`.</li>
-            <li>The first line can optionally be a header.</li>
-            <li>Empty lines are ignored.</li>
-            <li>Lines starting with `#` are treated as comments and ignored.</li>
-            <li>Duplicate rows are skipped because strict duplicate protection is enabled.</li>
-            <li>The file should be saved as UTF-8 text.</li>
-            <li>Exactly 3 required columns are expected in this version.</li>
+            <li>{t("import.helpRule.oneLine")}</li>
+            <li>{t("import.helpRule.separator")}</li>
+            <li>{t("import.helpRule.utf8")}</li>
+            <li>{t("import.helpRule.columns")}</li>
+            <li>{t("import.helpRule.header")}</li>
+            <li>{t("import.helpRule.required")}</li>
+            <li>{t("import.helpRule.duplicates")}</li>
+            <li>{t("import.helpRule.comments")}</li>
           </ul>
         </div>
 
         <div className="surface-muted">
-          <div className="surface-muted__label">Example</div>
+          <div className="surface-muted__label">{t("import.helpExamples")}</div>
+          <div className="detail-inline-stats detail-inline-stats--wrap">
+            <span>{t("import.helpExample2")}</span>
+            <span>{t("import.helpExample3")}</span>
+            <span>{t("import.helpExample4")}</span>
+          </div>
           <pre className="import-help__code" dir="auto">
             {exampleText}
           </pre>
+          <div className="surface-muted import-help__note">
+            <div className="surface-muted__label">{t("import.helpHeaderTitle")}</div>
+            <p>{t("import.helpHeaderDescription")}</p>
+          </div>
+          <div className="surface-muted import-help__note">
+            <div className="surface-muted__label">{t("import.helpRequiredTitle")}</div>
+            <p>{t("import.helpRequiredDescription")}</p>
+          </div>
           <div className="dialog-actions dialog-actions--start">
             <Button variant="secondary" onClick={() => void copyExample()}>
-              {copied ? "Copied" : "Copy example"}
+              {copied ? t("common.copied") : t("common.copyExample")}
             </Button>
           </div>
         </div>

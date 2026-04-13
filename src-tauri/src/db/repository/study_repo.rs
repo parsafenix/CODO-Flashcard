@@ -2,21 +2,26 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 
-use crate::models::types::{CompleteStudySessionInput, GradeCardResponse, SessionRecord, SessionSummary, StudySessionOptions};
+use crate::models::types::{CompleteStudySessionInput, GradeCardResponse, SessionRecord, SessionSummary, StudySessionOptions, UiLanguage};
+
+use super::dynamic_repo;
 
 fn now_utc() -> String {
   Utc::now().to_rfc3339()
 }
 
 pub fn start_session(connection: &Connection, options: &StudySessionOptions) -> Result<i64> {
+  dynamic_repo::save_study_configuration(connection, options.deck_id, options.prompt_field_id, &options.reveal_field_ids)?;
   connection.execute(
-    "INSERT INTO study_sessions (deck_id, started_at, mode, prompt_language)
-      VALUES (?1, ?2, ?3, ?4)",
+    "INSERT INTO study_sessions (deck_id, started_at, mode, prompt_language, prompt_field_id, reveal_field_ids)
+      VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
     params![
       options.deck_id,
       now_utc(),
       options.mode.as_str(),
-      options.prompt_language.as_db_field(),
+      format!("field:{}", options.prompt_field_id),
+      options.prompt_field_id,
+      dynamic_repo::serialize_reveal_field_ids(&options.reveal_field_ids),
     ],
   )?;
   Ok(connection.last_insert_rowid())
@@ -98,7 +103,28 @@ pub fn apply_scheduling_update(
   Ok(())
 }
 
-pub fn complete_session(connection: &Connection, input: &CompleteStudySessionInput) -> Result<SessionSummary> {
+fn session_suggestion(language: UiLanguage, remaining_due_cards: i64, wrong_count: i64, correct_count: i64) -> String {
+  if remaining_due_cards > 0 {
+    return match language {
+      UiLanguage::Fa => "هنوز کارت‌های موعددار دارید. یک مرور کوتاه دیگر کمک می‌کند بهتر تثبیت شوند.".to_string(),
+      _ => "You still have due cards waiting. A short follow-up round will help lock them in.".to_string(),
+    };
+  }
+
+  if wrong_count > correct_count {
+    return match language {
+      UiLanguage::Fa => "یک استراحت کوتاه داشته باشید و بعد یک جلسه‌ی mixed دیگر بروید تا کارت‌های سخت‌تر بهتر جا بیفتند.".to_string(),
+      _ => "Take a short break, then run a new mixed session to reinforce the harder cards.".to_string(),
+    };
+  }
+
+  match language {
+    UiLanguage::Fa => "جلسه‌ی خوبی بود. بعداً برای مرور زمان‌بندی‌شده‌ی بعدی برگردید.".to_string(),
+    _ => "Nice session. Come back later for the next scheduled review window.".to_string(),
+  }
+}
+
+pub fn complete_session(connection: &Connection, input: &CompleteStudySessionInput, language: UiLanguage) -> Result<SessionSummary> {
   let now = now_utc();
   let accuracy_percent = if input.studied_count == 0 {
     0
@@ -138,13 +164,7 @@ pub fn complete_session(connection: &Connection, input: &CompleteStudySessionInp
     |row| row.get::<_, i64>(0),
   )?;
 
-  let suggestion = if remaining_due_cards > 0 {
-    "You still have due cards waiting. A short follow-up round will help lock them in.".to_string()
-  } else if input.wrong_count > input.correct_count {
-    "Take a short break, then run a new mixed session to reinforce the harder cards.".to_string()
-  } else {
-    "Nice session. Come back later for the next scheduled review window.".to_string()
-  };
+  let suggestion = session_suggestion(language, remaining_due_cards, input.wrong_count, input.correct_count);
 
   Ok(SessionSummary {
     session_id: input.session_id,

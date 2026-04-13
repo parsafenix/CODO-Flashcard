@@ -1,5 +1,6 @@
 import { Button } from "./Button";
 import { Modal } from "./Modal";
+import { useI18n } from "../../lib/i18n";
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -15,22 +16,23 @@ export function ConfirmDialog({
   open,
   title,
   description,
-  confirmLabel = "Confirm",
+  confirmLabel,
   confirmVariant = "danger",
   onCancel,
   onConfirm
 }: ConfirmDialogProps) {
+  const { t } = useI18n();
+
   return (
     <Modal open={open} title={title} description={description} onClose={onCancel}>
       <div className="dialog-actions">
         <Button variant="secondary" onClick={onCancel}>
-          Cancel
+          {t("common.cancel")}
         </Button>
         <Button variant={confirmVariant} onClick={onConfirm}>
-          {confirmLabel}
+          {confirmLabel ?? t("common.confirm")}
         </Button>
       </div>
     </Modal>
   );
 }
-

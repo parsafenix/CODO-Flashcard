@@ -79,9 +79,9 @@ The command produces:
 - Standalone release executable:
   - `src-tauri/target/release/codo_flashcard.exe`
 - Windows MSI installer:
-  - `src-tauri/target/release/bundle/msi/CODO Flashcard_0.1.0_x64_en-US.msi`
+  - `src-tauri/target/release/bundle/msi/CODO Flashcard_0.2.0_x64_en-US.msi`
 - Windows NSIS installer:
-  - `src-tauri/target/release/bundle/nsis/CODO Flashcard_0.1.0_x64-setup.exe`
+  - `src-tauri/target/release/bundle/nsis/CODO Flashcard_0.2.0_x64-setup.exe`
 
 Note:
 

@@ -16,6 +16,9 @@ function deck(overrides: Partial<DeckSummary>): DeckSummary {
     due_cards: 0,
     new_cards: 0,
     mastered_cards: 0,
+    study_prompt_field_id: null,
+    study_reveal_field_ids: [],
+    fields: [],
     ...overrides
   };
 }

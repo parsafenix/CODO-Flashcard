@@ -14,21 +14,15 @@ fn map_error(error: anyhow::Error) -> AppError {
   if message == "duplicate_card" {
     return AppError::field(
       "duplicate_card",
-      "A card with the same normalized 3-language tuple already exists in this deck.",
-      "language_1",
+      "A card with the same active required fields already exists in this deck.",
+      "values",
     );
   }
   if message == "card_not_found" {
     return AppError::new("not_found", "Card not found.");
   }
-  if message.contains("Language 1") {
-    return AppError::field("validation", message, "language_1");
-  }
-  if message.contains("Language 2") {
-    return AppError::field("validation", message, "language_2");
-  }
-  if message.contains("Language 3") {
-    return AppError::field("validation", message, "language_3");
+  if message.starts_with("Required field missing:") {
+    return AppError::field("validation", message, "values");
   }
   AppError::new("card_error", message)
 }

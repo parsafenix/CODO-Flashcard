@@ -1,8 +1,10 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
-import type { CardRecord, DeckSummary } from "../../lib/types";
+import { getActiveFields, getCardValue } from "../../lib/deckFields";
+import { useI18n } from "../../lib/i18n";
 import type { NormalizedApiError } from "../../lib/api";
+import type { CardRecord, DeckSummary } from "../../lib/types";
 
 interface CardFormModalProps {
   open: boolean;
@@ -12,22 +14,14 @@ interface CardFormModalProps {
   onSubmit: (input: {
     id?: number;
     deck_id: number;
-    language_1: string;
-    language_2: string;
-    language_3: string;
-    note?: string;
-    example_sentence?: string;
-    tag?: string;
+    values: Array<{ field_id: number; value: string }>;
   }) => Promise<void>;
 }
 
 export function CardFormModal({ open, deck, initialCard, onClose, onSubmit }: CardFormModalProps) {
-  const [language1, setLanguage1] = useState("");
-  const [language2, setLanguage2] = useState("");
-  const [language3, setLanguage3] = useState("");
-  const [note, setNote] = useState("");
-  const [example, setExample] = useState("");
-  const [tag, setTag] = useState("");
+  const { t } = useI18n();
+  const activeFields = useMemo(() => getActiveFields(deck.fields), [deck.fields]);
+  const [values, setValues] = useState<Record<number, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -37,15 +31,14 @@ export function CardFormModal({ open, deck, initialCard, onClose, onSubmit }: Ca
       return;
     }
 
-    setLanguage1(initialCard?.language_1 ?? "");
-    setLanguage2(initialCard?.language_2 ?? "");
-    setLanguage3(initialCard?.language_3 ?? "");
-    setNote(initialCard?.note ?? "");
-    setExample(initialCard?.example_sentence ?? "");
-    setTag(initialCard?.tag ?? "");
+    setValues(
+      Object.fromEntries(
+        activeFields.map((field) => [field.id, initialCard ? getCardValue(initialCard.values, field.id) : ""])
+      )
+    );
     setError(null);
     setFieldError(null);
-  }, [initialCard, open]);
+  }, [activeFields, initialCard, open]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -57,22 +50,21 @@ export function CardFormModal({ open, deck, initialCard, onClose, onSubmit }: Ca
       await onSubmit({
         id: initialCard?.id,
         deck_id: deck.id,
-        language_1: language1,
-        language_2: language2,
-        language_3: language3,
-        note,
-        example_sentence: example,
-        tag
+        values: activeFields.map((field) => ({
+          field_id: field.id,
+          value: values[field.id] ?? "",
+        })),
       });
       onClose();
     } catch (err) {
       const apiError = err as NormalizedApiError;
-      const message = typeof apiError?.message === "string" ? apiError.message : "Unable to save card.";
-      if (
-        apiError?.field === "language_1" ||
-        apiError?.field === "language_2" ||
-        apiError?.field === "language_3"
-      ) {
+      const message =
+        apiError?.code === "duplicate_card"
+          ? t("cardform.duplicate")
+          : typeof apiError?.message === "string"
+            ? apiError.message
+            : t("cardform.error");
+      if (apiError?.field === "values") {
         setFieldError(message);
       } else {
         setError(message);
@@ -85,51 +77,43 @@ export function CardFormModal({ open, deck, initialCard, onClose, onSubmit }: Ca
   return (
     <Modal
       open={open}
-      title={initialCard ? "Edit card" : "Add card"}
-      description="Store the original vocabulary exactly as entered. Duplicate checks use a normalized copy behind the scenes."
+      title={initialCard ? t("cardform.editTitle") : t("cardform.addTitle")}
+      description={t("cardform.description")}
       onClose={onClose}
       width="large"
     >
       <form className="form-stack" onSubmit={handleSubmit}>
-        <div className="field-grid field-grid--triple">
-          <label className="field">
-            <span>{deck.language_1_label}</span>
-            <input dir="auto" value={language1} onChange={(event) => setLanguage1(event.target.value)} />
-            {fieldError ? <div className="field-error">{fieldError}</div> : null}
-          </label>
-          <label className="field">
-            <span>{deck.language_2_label}</span>
-            <input dir="auto" value={language2} onChange={(event) => setLanguage2(event.target.value)} />
-          </label>
-          <label className="field">
-            <span>{deck.language_3_label}</span>
-            <input dir="auto" value={language3} onChange={(event) => setLanguage3(event.target.value)} />
-          </label>
+        <div className="field-grid field-grid--dynamic">
+          {activeFields.map((field, index) => (
+            <label key={field.id} className="field">
+              <span>
+                {field.label}
+                {field.required ? " *" : ""}
+              </span>
+              <textarea
+                rows={index < 2 ? 2 : 3}
+                dir="auto"
+                value={values[field.id] ?? ""}
+                onChange={(event) =>
+                  setValues((current) => ({
+                    ...current,
+                    [field.id]: event.target.value,
+                  }))
+                }
+              />
+            </label>
+          ))}
         </div>
 
-        <label className="field">
-          <span>Note</span>
-          <textarea rows={2} dir="auto" value={note} onChange={(event) => setNote(event.target.value)} />
-        </label>
-
-        <label className="field">
-          <span>Example sentence</span>
-          <textarea rows={3} dir="auto" value={example} onChange={(event) => setExample(event.target.value)} />
-        </label>
-
-        <label className="field">
-          <span>Tag or category</span>
-          <input dir="auto" value={tag} onChange={(event) => setTag(event.target.value)} placeholder="Travel, verbs, daily life..." />
-        </label>
-
+        {fieldError ? <div className="field-error">{fieldError}</div> : null}
         {error ? <div className="inline-error">{error}</div> : null}
 
         <div className="dialog-actions">
-          <Button variant="secondary" onClick={onClose}>
-            Cancel
+          <Button type="button" variant="secondary" onClick={onClose}>
+            {t("common.cancel")}
           </Button>
           <Button type="submit" disabled={submitting}>
-            {submitting ? "Saving..." : initialCard ? "Save changes" : "Add card"}
+            {submitting ? t("common.loading") : initialCard ? t("common.save") : t("common.add")}
           </Button>
         </div>
       </form>

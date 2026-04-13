@@ -1,22 +1,28 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result};
 use chrono::Utc;
 use rusqlite::{params, params_from_iter, ffi, Connection, Error, OptionalExtension, Row, ToSql};
 
-use crate::{
-  models::types::{
-    CardFilter, CardListQuery, CardRecord, CardSchedulingRecord, CardSort, CardStatus, CreateCardInput,
-    StudyCard, UpdateCardInput,
-  },
-  services::normalization::{compact_text, normalize_card_fields, normalize_text},
+use crate::models::types::{
+  CardFilter, CardListQuery, CardRecord, CardSchedulingRecord, CardSort, CardStatus, CreateCardInput,
+  StudyCard, StudyMode, UpdateCardInput,
 };
+
+use super::dynamic_repo;
 
 fn now_utc() -> String {
   Utc::now().to_rfc3339()
 }
 
-fn map_card_record(row: &Row<'_>) -> rusqlite::Result<CardRecord> {
+fn temporary_dedupe_key(deck_id: i64) -> String {
+  let tick = Utc::now()
+    .timestamp_nanos_opt()
+    .unwrap_or_else(|| Utc::now().timestamp_micros() * 1_000);
+  format!("pending:{deck_id}:{tick}")
+}
+
+fn map_card_base(row: &Row<'_>) -> rusqlite::Result<CardRecord> {
   Ok(CardRecord {
     id: row.get("id")?,
     deck_id: row.get("deck_id")?,
@@ -26,6 +32,7 @@ fn map_card_record(row: &Row<'_>) -> rusqlite::Result<CardRecord> {
     note: row.get("note")?,
     example_sentence: row.get("example_sentence")?,
     tag: row.get("tag")?,
+    values: Vec::new(),
     created_at: row.get("created_at")?,
     updated_at: row.get("updated_at")?,
     last_reviewed_at: row.get("last_reviewed_at")?,
@@ -50,16 +57,10 @@ fn map_study_card(row: &Row<'_>) -> rusqlite::Result<StudyCard> {
     note: row.get("note")?,
     example_sentence: row.get("example_sentence")?,
     tag: row.get("tag")?,
+    values: Vec::new(),
     status: CardStatus::from_db(&row.get::<_, String>("status")?),
     next_review_at: row.get("next_review_at")?,
   })
-}
-
-fn normalize_optional(value: &Option<String>) -> Option<String> {
-  value
-    .as_ref()
-    .map(|text| text.trim().to_string())
-    .filter(|text| !text.is_empty())
 }
 
 fn duplicate_error() -> anyhow::Error {
@@ -80,62 +81,43 @@ fn is_unique_constraint(error: &Error) -> bool {
   )
 }
 
-fn save_card(
-  connection: &Connection,
-  id: Option<i64>,
-  deck_id: i64,
-  language_1: &str,
-  language_2: &str,
-  language_3: &str,
-  note: Option<String>,
-  example_sentence: Option<String>,
-  tag: Option<String>,
-) -> Result<CardRecord> {
-  anyhow::ensure!(!language_1.trim().is_empty(), "Language 1 is required.");
-  anyhow::ensure!(!language_2.trim().is_empty(), "Language 2 is required.");
-  anyhow::ensure!(!language_3.trim().is_empty(), "Language 3 is required.");
+fn attach_values(connection: &Connection, mut cards: Vec<CardRecord>) -> Result<Vec<CardRecord>> {
+  let card_ids = cards.iter().map(|card| card.id).collect::<Vec<_>>();
+  let by_card = dynamic_repo::get_card_values_for_cards(connection, &card_ids)?;
+  for card in &mut cards {
+    card.values = by_card.get(&card.id).cloned().unwrap_or_default();
+  }
+  Ok(cards)
+}
 
-  let normalized = normalize_card_fields(language_1, language_2, language_3);
-  let now = now_utc();
+fn attach_study_values(connection: &Connection, mut cards: Vec<StudyCard>) -> Result<Vec<StudyCard>> {
+  let card_ids = cards.iter().map(|card| card.id).collect::<Vec<_>>();
+  let by_card = dynamic_repo::get_card_values_for_cards(connection, &card_ids)?;
+  for card in &mut cards {
+    card.values = by_card.get(&card.id).cloned().unwrap_or_default();
+  }
+  Ok(cards)
+}
 
-  let rows_affected = if let Some(card_id) = id {
-    connection.execute(
-      "UPDATE cards SET
-        language_1 = ?1,
-        language_2 = ?2,
-        language_3 = ?3,
-        note = ?4,
-        example_sentence = ?5,
-        tag = ?6,
-        language_1_normalized = ?7,
-        language_2_normalized = ?8,
-        language_3_normalized = ?9,
-        language_1_compact = ?10,
-        language_2_compact = ?11,
-        language_3_compact = ?12,
-        dedupe_key = ?13,
-        updated_at = ?14
-      WHERE id = ?15 AND deck_id = ?16",
-      params![
-        language_1.trim(),
-        language_2.trim(),
-        language_3.trim(),
-        note,
-        example_sentence,
-        tag,
-        normalized.language_1_normalized,
-        normalized.language_2_normalized,
-        normalized.language_3_normalized,
-        normalized.language_1_compact,
-        normalized.language_2_compact,
-        normalized.language_3_compact,
-        normalized.dedupe_key,
-        now,
-        card_id,
-        deck_id
-      ],
-    )
+fn save_card(connection: &Connection, id: Option<i64>, deck_id: i64, values: &[(i64, String)]) -> Result<CardRecord> {
+  let fields = dynamic_repo::list_deck_fields(connection, deck_id)?;
+  let values_map = values.iter().cloned().collect::<HashMap<_, _>>();
+  dynamic_repo::ensure_required_fields_present(&fields, &values_map)?;
+  for field_id in values_map.keys() {
+    dynamic_repo::ensure_field_belongs_to_deck(connection, deck_id, *field_id)?;
+  }
+
+  let card_id = if let Some(card_id) = id {
+    let rows = connection.execute(
+      "UPDATE cards SET updated_at = ?1 WHERE id = ?2 AND deck_id = ?3",
+      params![now_utc(), card_id, deck_id],
+    )?;
+    if rows == 0 {
+      return Err(not_found_error());
+    }
+    card_id
   } else {
+    let created_at = now_utc();
     connection.execute(
       "INSERT INTO cards (
         deck_id,
@@ -158,130 +140,135 @@ fn save_card(
         current_interval_minutes,
         ease_factor,
         mastery_score
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?15, 'new', 0, 2.2, 0)",
-      params![
-        deck_id,
-        language_1.trim(),
-        language_2.trim(),
-        language_3.trim(),
-        note,
-        example_sentence,
-        tag,
-        normalized.language_1_normalized,
-        normalized.language_2_normalized,
-        normalized.language_3_normalized,
-        normalized.language_1_compact,
-        normalized.language_2_compact,
-        normalized.language_3_compact,
-        normalized.dedupe_key,
-        now
-      ],
+      ) VALUES (?1, '', '', '', NULL, NULL, NULL, '', '', '', '', '', '', ?2, ?3, ?3, 'new', 0, 2.2, 0)",
+      params![deck_id, temporary_dedupe_key(deck_id), created_at],
     )
-  }
-  .map_err(|error| if is_unique_constraint(&error) { duplicate_error() } else { error.into() })?;
+    .map_err(|error| if is_unique_constraint(&error) { duplicate_error() } else { error.into() })?;
+    connection.last_insert_rowid()
+  };
 
-  if id.is_some() && rows_affected == 0 {
-    return Err(not_found_error());
+  let submitted_field_ids = values.iter().map(|(field_id, _)| *field_id).collect::<HashSet<_>>();
+  let mut current_statement = connection.prepare("SELECT field_id FROM card_values WHERE card_id = ?1")?;
+  let current_field_ids = current_statement
+    .query_map(params![card_id], |row| row.get::<_, i64>(0))?
+    .collect::<rusqlite::Result<Vec<_>>>()?;
+  for field_id in current_field_ids {
+    if !submitted_field_ids.contains(&field_id) {
+      connection.execute(
+        "DELETE FROM card_values WHERE card_id = ?1 AND field_id = ?2",
+        params![card_id, field_id],
+      )?;
+    }
   }
 
-  let final_id = id.unwrap_or_else(|| connection.last_insert_rowid());
-  get_card_in_deck(connection, final_id, deck_id)?.context("Card not found after save")
+  dynamic_repo::upsert_card_values(connection, card_id, values)?;
+  dynamic_repo::sync_card_compatibility_cache(connection, deck_id, card_id)
+    .map_err(|error| if error.to_string().contains("UNIQUE constraint") { duplicate_error() } else { error })?;
+
+  get_card_in_deck(connection, card_id, deck_id)?.context("Card not found after save")
 }
 
 pub fn list_cards(connection: &Connection, query: &CardListQuery) -> Result<Vec<CardRecord>> {
-  let search_normalized = query.search.as_deref().map(normalize_text).unwrap_or_default();
-  let search_compact = query.search.as_deref().map(compact_text).unwrap_or_default();
+  let search_normalized = query
+    .search
+    .as_deref()
+    .map(crate::services::normalization::normalize_text)
+    .unwrap_or_default();
+  let search_compact = query
+    .search
+    .as_deref()
+    .map(crate::services::normalization::compact_text)
+    .unwrap_or_default();
   let like_normalized = format!("%{}%", search_normalized);
   let like_compact = format!("%{}%", search_compact);
   let now = now_utc();
 
   let mut sql = String::from(
-    "SELECT * FROM cards
-      WHERE deck_id = ?1
-        AND (?2 = '' OR
-          language_1_normalized LIKE ?3 OR language_2_normalized LIKE ?3 OR language_3_normalized LIKE ?3 OR
-          language_1_compact LIKE ?4 OR language_2_compact LIKE ?4 OR language_3_compact LIKE ?4)",
+    "SELECT * FROM cards c
+      WHERE c.deck_id = ?1
+        AND (?2 = '' OR EXISTS (
+          SELECT 1
+          FROM card_values cv
+          INNER JOIN deck_fields df ON df.id = cv.field_id
+          WHERE cv.card_id = c.id
+            AND df.active = 1
+            AND (cv.normalized_value LIKE ?3 OR cv.compact_value LIKE ?4)
+        ))",
   );
 
   let filter = query.filter.unwrap_or(CardFilter::All);
   match filter {
     CardFilter::All => {}
-    CardFilter::New => sql.push_str(" AND status = 'new'"),
-    CardFilter::Due => sql.push_str(" AND status != 'new' AND next_review_at IS NOT NULL AND next_review_at <= ?5"),
-    CardFilter::Mastered => sql.push_str(" AND status = 'mastered'"),
-    CardFilter::Weak => sql.push_str(" AND review_count > 0 AND (wrong_count > correct_count OR mastery_score < 40)"),
+    CardFilter::New => sql.push_str(" AND c.status = 'new'"),
+    CardFilter::Due => sql.push_str(" AND c.status != 'new' AND c.next_review_at IS NOT NULL AND c.next_review_at <= ?5"),
+    CardFilter::Mastered => sql.push_str(" AND c.status = 'mastered'"),
+    CardFilter::Weak => sql.push_str(" AND c.review_count > 0 AND (c.wrong_count > c.correct_count OR c.mastery_score < 40)"),
   }
 
   sql.push_str(" ORDER BY ");
   sql.push_str(match query.sort.unwrap_or(CardSort::UpdatedDesc) {
-    CardSort::UpdatedDesc => "updated_at DESC",
-    CardSort::CreatedDesc => "created_at DESC",
-    CardSort::NextReviewAsc => "CASE WHEN next_review_at IS NULL THEN 1 ELSE 0 END, next_review_at ASC",
-    CardSort::Language1Asc => "language_1_normalized ASC",
+    CardSort::UpdatedDesc => "c.updated_at DESC",
+    CardSort::CreatedDesc => "c.created_at DESC",
+    CardSort::NextReviewAsc => "CASE WHEN c.next_review_at IS NULL THEN 1 ELSE 0 END, c.next_review_at ASC",
+    CardSort::PrimaryFieldAsc => "c.language_1_normalized ASC",
   });
 
   let mut statement = connection.prepare(&sql)?;
-  if matches!(filter, CardFilter::Due) {
-    let params_vec: Vec<&dyn ToSql> = vec![
-      &query.deck_id,
-      &search_normalized,
-      &like_normalized,
-      &like_compact,
-      &now,
-    ];
-    let rows = statement.query_map(params_from_iter(params_vec), map_card_record)?;
-    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+  let cards = if matches!(filter, CardFilter::Due) {
+    let params_vec: Vec<&dyn ToSql> = vec![&query.deck_id, &search_normalized, &like_normalized, &like_compact, &now];
+    statement
+      .query_map(params_from_iter(params_vec), map_card_base)?
+      .collect::<rusqlite::Result<Vec<_>>>()?
   } else {
     let params_vec: Vec<&dyn ToSql> = vec![&query.deck_id, &search_normalized, &like_normalized, &like_compact];
-    let rows = statement.query_map(params_from_iter(params_vec), map_card_record)?;
-    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
-  }
+    statement
+      .query_map(params_from_iter(params_vec), map_card_base)?
+      .collect::<rusqlite::Result<Vec<_>>>()?
+  };
+
+  attach_values(connection, cards)
 }
 
 pub fn get_card(connection: &Connection, card_id: i64) -> Result<Option<CardRecord>> {
-  connection
-    .query_row("SELECT * FROM cards WHERE id = ?1", params![card_id], map_card_record)
-    .optional()
-    .map_err(Into::into)
+  let card = connection
+    .query_row("SELECT * FROM cards WHERE id = ?1", params![card_id], map_card_base)
+    .optional()?;
+  Ok(match card {
+    Some(card) => Some(attach_values(connection, vec![card])?.remove(0)),
+    None => None,
+  })
 }
 
 pub fn get_card_in_deck(connection: &Connection, card_id: i64, deck_id: i64) -> Result<Option<CardRecord>> {
-  connection
+  let card = connection
     .query_row(
       "SELECT * FROM cards WHERE id = ?1 AND deck_id = ?2",
       params![card_id, deck_id],
-      map_card_record,
+      map_card_base,
     )
-    .optional()
-    .map_err(Into::into)
+    .optional()?;
+  Ok(match card {
+    Some(card) => Some(attach_values(connection, vec![card])?.remove(0)),
+    None => None,
+  })
 }
 
 pub fn create_card(connection: &Connection, input: &CreateCardInput) -> Result<CardRecord> {
-  save_card(
-    connection,
-    None,
-    input.deck_id,
-    &input.language_1,
-    &input.language_2,
-    &input.language_3,
-    normalize_optional(&input.note),
-    normalize_optional(&input.example_sentence),
-    normalize_optional(&input.tag),
-  )
+  let values = input
+    .values
+    .iter()
+    .map(|value| (value.field_id, value.value.clone()))
+    .collect::<Vec<_>>();
+  save_card(connection, None, input.deck_id, &values)
 }
 
 pub fn update_card(connection: &Connection, input: &UpdateCardInput) -> Result<CardRecord> {
-  save_card(
-    connection,
-    Some(input.id),
-    input.deck_id,
-    &input.language_1,
-    &input.language_2,
-    &input.language_3,
-    normalize_optional(&input.note),
-    normalize_optional(&input.example_sentence),
-    normalize_optional(&input.tag),
-  )
+  let values = input
+    .values
+    .iter()
+    .map(|value| (value.field_id, value.value.clone()))
+    .collect::<Vec<_>>();
+  save_card(connection, Some(input.id), input.deck_id, &values)
 }
 
 pub fn delete_card(connection: &Connection, card_id: i64) -> Result<()> {
@@ -295,77 +282,32 @@ pub fn get_existing_dedupe_keys(connection: &Connection, deck_id: i64) -> Result
   Ok(rows.collect::<rusqlite::Result<HashSet<_>>>()?)
 }
 
-pub fn insert_import_card(
-  connection: &Connection,
-  deck_id: i64,
-  language_1: &str,
-  language_2: &str,
-  language_3: &str,
-) -> Result<()> {
-  let normalized = normalize_card_fields(language_1, language_2, language_3);
-  let now = now_utc();
-  match connection.execute(
-    "INSERT INTO cards (
-      deck_id,
-      language_1,
-      language_2,
-      language_3,
-      language_1_normalized,
-      language_2_normalized,
-      language_3_normalized,
-      language_1_compact,
-      language_2_compact,
-      language_3_compact,
-      dedupe_key,
-      created_at,
-      updated_at,
-      status,
-      current_interval_minutes,
-      ease_factor,
-      mastery_score
-    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12, 'new', 0, 2.2, 0)",
-    params![
-      deck_id,
-      language_1.trim(),
-      language_2.trim(),
-      language_3.trim(),
-      normalized.language_1_normalized,
-      normalized.language_2_normalized,
-      normalized.language_3_normalized,
-      normalized.language_1_compact,
-      normalized.language_2_compact,
-      normalized.language_3_compact,
-      normalized.dedupe_key,
-      now
-    ],
-  ) {
-    Ok(_) => {}
-    Err(error) if is_unique_constraint(&error) => return Err(duplicate_error()),
-    Err(other) => return Err(other.into()),
-  }
-  Ok(())
+pub fn insert_import_card(connection: &Connection, deck_id: i64, values: &[(i64, String)]) -> Result<()> {
+  save_card(connection, None, deck_id, values).map(|_| ()).map_err(|error| {
+    if error.to_string() == "duplicate_card" {
+      duplicate_error()
+    } else {
+      error
+    }
+  })
 }
 
-pub fn get_cards_for_study(
-  connection: &Connection,
-  deck_id: i64,
-  mode: crate::models::types::StudyMode,
-) -> Result<Vec<StudyCard>> {
+pub fn get_cards_for_study(connection: &Connection, deck_id: i64, mode: StudyMode) -> Result<Vec<StudyCard>> {
   let now = now_utc();
   let sql = match mode {
-    crate::models::types::StudyMode::Due => {
+    StudyMode::Due => {
       "SELECT id, deck_id, language_1, language_2, language_3, note, example_sentence, tag, status, next_review_at
         FROM cards
         WHERE deck_id = ?1 AND status != 'new' AND next_review_at IS NOT NULL AND next_review_at <= ?2
         ORDER BY next_review_at ASC, updated_at ASC"
     }
-    crate::models::types::StudyMode::New => {
+    StudyMode::New => {
       "SELECT id, deck_id, language_1, language_2, language_3, note, example_sentence, tag, status, next_review_at
         FROM cards
         WHERE deck_id = ?1 AND status = 'new'
         ORDER BY created_at ASC"
     }
-    crate::models::types::StudyMode::Mixed => {
+    StudyMode::Mixed => {
       "SELECT id, deck_id, language_1, language_2, language_3, note, example_sentence, tag, status, next_review_at
         FROM cards
         WHERE deck_id = ?1 AND (
@@ -376,8 +318,10 @@ pub fn get_cards_for_study(
   };
 
   let mut statement = connection.prepare(sql)?;
-  let rows = statement.query_map(params![deck_id, now], map_study_card)?;
-  Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+  let cards = statement
+    .query_map(params![deck_id, now], map_study_card)?
+    .collect::<rusqlite::Result<Vec<_>>>()?;
+  attach_study_values(connection, cards)
 }
 
 pub fn get_scheduling_record(connection: &Connection, card_id: i64) -> Result<Option<CardSchedulingRecord>> {
@@ -411,9 +355,11 @@ pub fn get_scheduling_record(connection: &Connection, card_id: i64) -> Result<Op
 mod tests {
   use std::time::{SystemTime, UNIX_EPOCH};
 
+  use rusqlite::Connection;
+
   use crate::{
     db::{initialize_database, open_connection, repository::deck_repo},
-    models::types::{CardFilter, CardListQuery, CardSort, CreateCardInput, CreateDeckInput, UpdateCardInput},
+    models::types::{CardFilter, CardListQuery, CardSort, CardValueInput, CreateCardInput, CreateDeckInput, DeckFieldInput, UpdateCardInput},
   };
 
   use super::{create_card, list_cards, update_card};
@@ -426,46 +372,70 @@ mod tests {
     std::env::temp_dir().join(format!("flashcard-local-card-repo-{unique}.sqlite"))
   }
 
+  fn create_test_deck(connection: &Connection, name: &str) -> i64 {
+    deck_repo::create_deck(
+      connection,
+      &CreateDeckInput {
+        name: name.to_string(),
+        description: None,
+        fields: vec![
+          DeckFieldInput {
+            id: None,
+            label: "Persian".to_string(),
+            language_code: Some("persian".to_string()),
+            order_index: 0,
+            required: true,
+            active: true,
+            field_type: Some("text".to_string()),
+          },
+          DeckFieldInput {
+            id: None,
+            label: "English".to_string(),
+            language_code: Some("english".to_string()),
+            order_index: 1,
+            required: true,
+            active: true,
+            field_type: Some("text".to_string()),
+          },
+          DeckFieldInput {
+            id: None,
+            label: "Example".to_string(),
+            language_code: Some("example".to_string()),
+            order_index: 2,
+            required: false,
+            active: true,
+            field_type: Some("text".to_string()),
+          },
+        ],
+      },
+    )
+    .unwrap()
+    .id
+  }
+
   #[test]
   fn update_respects_deck_id_and_rejects_wrong_target() {
     let db_path = temp_db_path();
     initialize_database(&db_path).unwrap();
     let connection = open_connection(&db_path).unwrap();
 
-    let deck_a = deck_repo::create_deck(
-      &connection,
-      &CreateDeckInput {
-        name: "Deck A".to_string(),
-        description: None,
-        language_1_label: None,
-        language_2_label: None,
-        language_3_label: None,
-      },
-    )
-    .unwrap();
-
-    let deck_b = deck_repo::create_deck(
-      &connection,
-      &CreateDeckInput {
-        name: "Deck B".to_string(),
-        description: None,
-        language_1_label: None,
-        language_2_label: None,
-        language_3_label: None,
-      },
-    )
-    .unwrap();
+    let deck_a = deck_repo::get_deck(&connection, create_test_deck(&connection, "Deck A")).unwrap().unwrap();
+    let deck_b = deck_repo::get_deck(&connection, create_test_deck(&connection, "Deck B")).unwrap().unwrap();
 
     let card = create_card(
       &connection,
       &CreateCardInput {
         deck_id: deck_a.id,
-        language_1: "\u{0633}\u{0644}\u{0627}\u{0645}".to_string(),
-        language_2: "Hello".to_string(),
-        language_3: "Ciao".to_string(),
-        note: None,
-        example_sentence: None,
-        tag: None,
+        values: vec![
+          CardValueInput {
+            field_id: deck_a.fields[0].id,
+            value: "سلام".to_string(),
+          },
+          CardValueInput {
+            field_id: deck_a.fields[1].id,
+            value: "Hello".to_string(),
+          },
+        ],
       },
     )
     .unwrap();
@@ -475,49 +445,45 @@ mod tests {
       &UpdateCardInput {
         id: card.id,
         deck_id: deck_b.id,
-        language_1: "\u{0633}\u{0644}\u{0627}\u{0645}".to_string(),
-        language_2: "Hello".to_string(),
-        language_3: "Ciao".to_string(),
-        note: None,
-        example_sentence: None,
-        tag: None,
+        values: vec![
+          CardValueInput {
+            field_id: deck_b.fields[0].id,
+            value: "سلام".to_string(),
+          },
+          CardValueInput {
+            field_id: deck_b.fields[1].id,
+            value: "Hello".to_string(),
+          },
+        ],
       },
     )
     .unwrap_err();
 
     assert_eq!(error.to_string(), "card_not_found");
-
     let _ = std::fs::remove_file(db_path);
   }
 
   #[test]
-  fn search_matches_compact_persian_variants() {
+  fn search_matches_dynamic_compact_persian_variants() {
     let db_path = temp_db_path();
     initialize_database(&db_path).unwrap();
     let connection = open_connection(&db_path).unwrap();
-
-    let deck = deck_repo::create_deck(
-      &connection,
-      &CreateDeckInput {
-        name: "Deck".to_string(),
-        description: None,
-        language_1_label: None,
-        language_2_label: None,
-        language_3_label: None,
-      },
-    )
-    .unwrap();
+    let deck = deck_repo::get_deck(&connection, create_test_deck(&connection, "Deck")).unwrap().unwrap();
 
     create_card(
       &connection,
       &CreateCardInput {
         deck_id: deck.id,
-        language_1: "\u{0643}\u{062A}\u{0627}\u{0628}\u{200C}\u{0647}\u{0627}".to_string(),
-        language_2: "Books".to_string(),
-        language_3: "Libri".to_string(),
-        note: None,
-        example_sentence: None,
-        tag: None,
+        values: vec![
+          CardValueInput {
+            field_id: deck.fields[0].id,
+            value: "كتاب\u{200C}ها".to_string(),
+          },
+          CardValueInput {
+            field_id: deck.fields[1].id,
+            value: "Books".to_string(),
+          },
+        ],
       },
     )
     .unwrap();
@@ -526,15 +492,106 @@ mod tests {
       &connection,
       &CardListQuery {
         deck_id: deck.id,
-        search: Some("\u{06A9}\u{062A}\u{0627}\u{0628}\u{0647}\u{0627}".to_string()),
+        search: Some("کتابها".to_string()),
         filter: Some(CardFilter::All),
-        sort: Some(CardSort::Language1Asc),
+        sort: Some(CardSort::PrimaryFieldAsc),
       },
     )
     .unwrap();
 
     assert_eq!(results.len(), 1);
+    let _ = std::fs::remove_file(db_path);
+  }
 
+  #[test]
+  fn duplicate_detection_uses_required_active_fields_only() {
+    let db_path = temp_db_path();
+    initialize_database(&db_path).unwrap();
+    let connection = open_connection(&db_path).unwrap();
+
+    let deck = deck_repo::create_deck(
+      &connection,
+      &CreateDeckInput {
+        name: "Dynamic duplicate deck".to_string(),
+        description: None,
+        fields: vec![
+          DeckFieldInput {
+            id: None,
+            label: "Word".to_string(),
+            language_code: Some("english".to_string()),
+            order_index: 0,
+            required: true,
+            active: true,
+            field_type: Some("text".to_string()),
+          },
+          DeckFieldInput {
+            id: None,
+            label: "Meaning".to_string(),
+            language_code: Some("persian".to_string()),
+            order_index: 1,
+            required: true,
+            active: true,
+            field_type: Some("text".to_string()),
+          },
+          DeckFieldInput {
+            id: None,
+            label: "Notes".to_string(),
+            language_code: Some("notes".to_string()),
+            order_index: 2,
+            required: false,
+            active: true,
+            field_type: Some("text".to_string()),
+          },
+        ],
+      },
+    )
+    .unwrap();
+
+    create_card(
+      &connection,
+      &CreateCardInput {
+        deck_id: deck.id,
+        values: vec![
+          CardValueInput {
+            field_id: deck.fields[0].id,
+            value: "book".to_string(),
+          },
+          CardValueInput {
+            field_id: deck.fields[1].id,
+            value: "کتاب".to_string(),
+          },
+          CardValueInput {
+            field_id: deck.fields[2].id,
+            value: "first note".to_string(),
+          },
+        ],
+      },
+    )
+    .unwrap();
+
+    let duplicate_error = create_card(
+      &connection,
+      &CreateCardInput {
+        deck_id: deck.id,
+        values: vec![
+          CardValueInput {
+            field_id: deck.fields[0].id,
+            value: "book".to_string(),
+          },
+          CardValueInput {
+            field_id: deck.fields[1].id,
+            value: "کتاب".to_string(),
+          },
+          CardValueInput {
+            field_id: deck.fields[2].id,
+            value: "second note".to_string(),
+          },
+        ],
+      },
+    )
+    .unwrap_err();
+
+    assert_eq!(duplicate_error.to_string(), "duplicate_card");
     let _ = std::fs::remove_file(db_path);
   }
 }

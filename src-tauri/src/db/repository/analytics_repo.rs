@@ -4,7 +4,7 @@ use anyhow::Result;
 use chrono::{Days, NaiveDate, Utc};
 use rusqlite::{params, Connection};
 
-use crate::models::types::{CardStatus, LearningBalance, OverviewMetrics, ProgressPoint, WeakCardAnalytics};
+use crate::models::types::{CardStatus, LearningBalance, OverviewMetrics, ProgressPoint, WeakCardAnalytics, WeakCardPreviewField};
 
 fn now_utc() -> String {
   Utc::now().to_rfc3339()
@@ -193,6 +193,7 @@ pub fn get_weak_cards(connection: &Connection, limit: usize) -> Result<Vec<WeakC
       language_1: row.get("language_1")?,
       language_2: row.get("language_2")?,
       language_3: row.get("language_3")?,
+      preview_fields: Vec::new(),
       status: CardStatus::from_db(&row.get::<_, String>("status")?),
       wrong_count: row.get("wrong_count")?,
       mastery_score: row.get("mastery_score")?,
@@ -232,7 +233,46 @@ pub fn get_weak_cards(connection: &Connection, limit: usize) -> Result<Vec<WeakC
       .then(left.mastery_score.cmp(&right.mastery_score))
   });
   cards.truncate(limit);
+  for card in &mut cards {
+    card.preview_fields = get_weak_card_preview_fields(connection, card.card_id)?;
+  }
   Ok(cards)
+}
+
+fn get_weak_card_preview_fields(connection: &Connection, card_id: i64) -> Result<Vec<WeakCardPreviewField>> {
+  let mut statement = connection.prepare(
+    "SELECT
+      df.label,
+      df.language_code,
+      cv.raw_value AS value
+    FROM card_values cv
+    INNER JOIN deck_fields df ON df.id = cv.field_id
+    WHERE cv.card_id = ?1
+      AND df.active = 1
+      AND TRIM(cv.raw_value) != ''
+    ORDER BY df.order_index ASC",
+  )?;
+
+  let rows = statement.query_map(params![card_id], |row| {
+    let label = row.get::<_, String>("label")?;
+    let language_code = row.get::<_, Option<String>>("language_code")?;
+    let value = row.get::<_, String>("value")?;
+    Ok(WeakCardPreviewField {
+      is_context: preview_field_is_context(language_code.as_deref(), &label),
+      label,
+      value,
+    })
+  })?;
+
+  Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?.into_iter().take(4).collect())
+}
+
+fn preview_field_is_context(language_code: Option<&str>, label: &str) -> bool {
+  let code = language_code.unwrap_or_default().to_lowercase();
+  let label = label.to_lowercase();
+  ["example", "notes", "note", "definition"]
+    .iter()
+    .any(|token| code.contains(token) || label.contains(token))
 }
 
 #[cfg(test)]
@@ -243,7 +283,7 @@ mod tests {
   use rusqlite::{params, Connection};
 
   use crate::db::{initialize_database, open_connection, repository::deck_repo};
-  use crate::models::types::{CreateCardInput, CreateDeckInput};
+  use crate::models::types::{CardValueInput, CreateCardInput, CreateDeckInput, DeckFieldInput};
 
   use super::{get_learning_balance, get_overview_metrics, get_progress_points, get_review_dates, get_today_review_count, get_weak_cards};
 
@@ -278,9 +318,35 @@ mod tests {
       &CreateDeckInput {
         name: "Analytics".into(),
         description: None,
-        language_1_label: None,
-        language_2_label: None,
-        language_3_label: None,
+        fields: vec![
+          DeckFieldInput {
+            id: None,
+            label: "Persian".into(),
+            language_code: Some("persian".into()),
+            order_index: 0,
+            required: true,
+            active: true,
+            field_type: Some("text".into()),
+          },
+          DeckFieldInput {
+            id: None,
+            label: "English".into(),
+            language_code: Some("english".into()),
+            order_index: 1,
+            required: true,
+            active: true,
+            field_type: Some("text".into()),
+          },
+          DeckFieldInput {
+            id: None,
+            label: "Italian".into(),
+            language_code: Some("italian".into()),
+            order_index: 2,
+            required: true,
+            active: true,
+            field_type: Some("text".into()),
+          },
+        ],
       },
     )
     .unwrap();
@@ -289,12 +355,20 @@ mod tests {
       &connection,
       &CreateCardInput {
         deck_id: deck.id,
-        language_1: "سلام".into(),
-        language_2: "Hello".into(),
-        language_3: "Ciao".into(),
-        note: None,
-        example_sentence: None,
-        tag: None,
+        values: vec![
+          CardValueInput {
+            field_id: deck.fields[0].id,
+            value: "سلام".into(),
+          },
+          CardValueInput {
+            field_id: deck.fields[1].id,
+            value: "Hello".into(),
+          },
+          CardValueInput {
+            field_id: deck.fields[2].id,
+            value: "Ciao".into(),
+          },
+        ],
       },
     )
     .unwrap();
@@ -303,12 +377,20 @@ mod tests {
       &connection,
       &CreateCardInput {
         deck_id: deck.id,
-        language_1: "کتاب".into(),
-        language_2: "Book".into(),
-        language_3: "Libro".into(),
-        note: None,
-        example_sentence: None,
-        tag: None,
+        values: vec![
+          CardValueInput {
+            field_id: deck.fields[0].id,
+            value: "کتاب".into(),
+          },
+          CardValueInput {
+            field_id: deck.fields[1].id,
+            value: "Book".into(),
+          },
+          CardValueInput {
+            field_id: deck.fields[2].id,
+            value: "Libro".into(),
+          },
+        ],
       },
     )
     .unwrap();

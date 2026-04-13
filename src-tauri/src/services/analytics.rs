@@ -5,7 +5,7 @@ use rusqlite::Connection;
 use crate::{
   db::repository::analytics_repo,
   models::types::{
-    AnalyticsRequest, AnalyticsResponse, AppSettings, DailyGoalProgress, OverviewMetrics, ReminderState, StreakStats,
+    AnalyticsRequest, AnalyticsResponse, AppSettings, DailyGoalProgress, OverviewMetrics, ReminderState, StreakStats, UiLanguage,
   },
 };
 
@@ -112,6 +112,7 @@ fn build_reminder(settings: &AppSettings, overview: &OverviewMetrics, today_utc_
 }
 
 fn build_insights(
+  language: UiLanguage,
   overview: &OverviewMetrics,
   weak_cards_len: usize,
   streak: &StreakStats,
@@ -121,15 +122,24 @@ fn build_insights(
   let mut insights = Vec::new();
 
   if overview.due_cards > 0 {
-    insights.push(format!("You have {} overdue review cards waiting.", overview.due_cards));
+    insights.push(match language {
+      UiLanguage::Fa => format!("{} کارت مرورِ موعدگذشته منتظر شما هستند.", overview.due_cards),
+      _ => format!("You have {} overdue review cards waiting.", overview.due_cards),
+    });
   }
 
   if weak_cards_len > 0 {
-    insights.push(format!("You are struggling with {} cards.", weak_cards_len));
+    insights.push(match language {
+      UiLanguage::Fa => format!("روی {} کارت هنوز نیاز به تمرکز بیشتری دارید.", weak_cards_len),
+      _ => format!("You are struggling with {} cards.", weak_cards_len),
+    });
   }
 
   if streak.current_streak >= 2 {
-    insights.push(format!("You studied {} days in a row.", streak.current_streak));
+    insights.push(match language {
+      UiLanguage::Fa => format!("{} روز پیاپی مطالعه کرده‌اید.", streak.current_streak),
+      _ => format!("You studied {} days in a row.", streak.current_streak),
+    });
   }
 
   let recent_non_zero = progress
@@ -146,15 +156,18 @@ fn build_insights(
     let latest_accuracy = latest.iter().map(|point| point.accuracy_percent).sum::<i64>() / latest.len() as i64;
     let earlier_accuracy = earlier.iter().map(|point| point.accuracy_percent).sum::<i64>() / earlier.len() as i64;
     if latest_accuracy > earlier_accuracy {
-      insights.push("Your review accuracy improved this week.".to_string());
+      insights.push(match language {
+        UiLanguage::Fa => "دقت مرور شما این هفته بهتر شده است.".to_string(),
+        _ => "Your review accuracy improved this week.".to_string(),
+      });
     }
   }
 
   if daily_goal.remaining_today > 0 && overview.total_reviews_completed > 0 {
-    insights.push(format!(
-      "You are {} reviews away from today's goal.",
-      daily_goal.remaining_today
-    ));
+    insights.push(match language {
+      UiLanguage::Fa => format!("تا هدف امروز فقط {} مرور فاصله دارید.", daily_goal.remaining_today),
+      _ => format!("You are {} reviews away from today's goal.", daily_goal.remaining_today),
+    });
   }
 
   insights.truncate(4);
@@ -172,7 +185,14 @@ pub fn get_analytics(connection: &Connection, settings: &AppSettings, request: &
   let streak = calculate_streak(&review_dates, today_utc);
   let daily_goal = build_daily_goal(settings, analytics_repo::get_today_review_count(connection)?, today_utc.to_string());
   let reminder = build_reminder(settings, &overview, today_utc.to_string());
-  let insights = build_insights(&overview, weak_cards.iter().filter(|card| card.needs_attention).count(), &streak, &daily_goal, &progress);
+  let insights = build_insights(
+    settings.ui_language,
+    &overview,
+    weak_cards.iter().filter(|card| card.needs_attention).count(),
+    &streak,
+    &daily_goal,
+    &progress,
+  );
 
   Ok(AnalyticsResponse {
     period_days,

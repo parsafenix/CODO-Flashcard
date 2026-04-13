@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAppContext } from "../../app/AppContext";
 import { Button } from "../../components/ui/Button";
@@ -7,29 +7,26 @@ import { FieldText } from "../../components/ui/FieldText";
 import { StatCard } from "../../components/ui/StatCard";
 import { useToast } from "../../components/ui/ToastProvider";
 import { api } from "../../lib/api";
+import { activeFieldLabel, defaultPromptFieldId, defaultRevealFieldIds, getActiveFields, getStudyFieldValue, isContextField } from "../../lib/deckFields";
 import { formatAccuracy } from "../../lib/format";
+import { useI18n } from "../../lib/i18n";
 import { useKeyboardShortcut } from "../../lib/keyboard";
-import type { DeckSummary, PromptLanguage, SessionSummary, StudyCard, StudyMode, StudySessionOptions, StudySessionPayload } from "../../lib/types";
+import type { DeckSummary, SessionSummary, StudyCard, StudyMode, StudySessionOptions, StudySessionPayload } from "../../lib/types";
+import { buildStudyDirectionPreview } from "./setupSummary";
 
-function getFrontField(card: StudyCard, prompt: PromptLanguage, reverse: boolean): [string, string] {
-  if (!reverse) {
-    if (prompt === "language_1") return ["language_1", card.language_1];
-    if (prompt === "language_2") return ["language_2", card.language_2];
-    return ["language_3", card.language_3];
+function getVisibleFieldIds(options: StudySessionOptions) {
+  if (!options.reverse_mode || options.reveal_field_ids.length === 0) {
+    return {
+      frontFieldId: options.prompt_field_id,
+      answerFieldIds: options.reveal_field_ids,
+    };
   }
 
-  if (prompt === "language_1") return ["language_2", card.language_2];
-  if (prompt === "language_2") return ["language_1", card.language_1];
-  return ["language_1", card.language_1];
-}
-
-function getAnswerFields(card: StudyCard, frontField: string): Array<[string, string]> {
-  const values: Array<[string, string]> = [
-    ["language_1", card.language_1],
-    ["language_2", card.language_2],
-    ["language_3", card.language_3]
-  ];
-  return values.filter(([field]) => field !== frontField);
+  const [firstReveal, ...restReveal] = options.reveal_field_ids;
+  return {
+    frontFieldId: firstReveal,
+    answerFieldIds: [options.prompt_field_id, ...restReveal],
+  };
 }
 
 export function StudySessionPage() {
@@ -38,6 +35,7 @@ export function StudySessionPage() {
   const navigate = useNavigate();
   const { settings } = useAppContext();
   const { notify } = useToast();
+  const { t } = useI18n();
   const deckId = Number(params.deckId);
   const [deck, setDeck] = useState<DeckSummary | null>(null);
   const [session, setSession] = useState<StudySessionPayload | null>(null);
@@ -50,11 +48,12 @@ export function StudySessionPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [options, setOptions] = useState<StudySessionOptions>({
     deck_id: deckId,
-    prompt_language: settings.default_prompt_language,
+    prompt_field_id: 0,
+    reveal_field_ids: [],
     mode: settings.default_study_mode,
     random_order: settings.random_order,
     reverse_mode: settings.reverse_mode,
-    cards_limit: settings.cards_per_session
+    cards_limit: settings.cards_per_session,
   });
 
   useEffect(() => {
@@ -62,10 +61,21 @@ export function StudySessionPage() {
       .getDeck(deckId)
       .then((response) => {
         setDeck(response);
+        const activeFields = getActiveFields(response.fields);
+        const promptFieldId = response.study_prompt_field_id ?? defaultPromptFieldId(activeFields);
+        const revealFieldIds = response.study_reveal_field_ids.length
+          ? response.study_reveal_field_ids
+          : defaultRevealFieldIds(activeFields, promptFieldId);
+        setOptions((current) => ({
+          ...current,
+          deck_id: response.id,
+          prompt_field_id: promptFieldId,
+          reveal_field_ids: revealFieldIds,
+        }));
         setLoadError(null);
       })
       .catch((err) => {
-        const message = typeof err === "object" && err && "message" in err ? String(err.message) : "Unable to load this deck.";
+        const message = typeof err === "object" && err && "message" in err ? String(err.message) : t("deck.loadError");
         setLoadError(message);
         notify(message, "error");
       });
@@ -73,10 +83,13 @@ export function StudySessionPage() {
 
   const currentCard = queue[0] ?? null;
   const totalSteps = stats.studied + queue.length;
-  const [frontField, frontValue] = currentCard
-    ? getFrontField(currentCard, options.prompt_language, options.reverse_mode)
-    : ["language_1", ""];
-  const answerFields = currentCard ? getAnswerFields(currentCard, frontField) : [];
+  const activeFields = useMemo(() => (deck ? getActiveFields(deck.fields) : []), [deck]);
+  const { frontFieldId, answerFieldIds } = getVisibleFieldIds(options);
+  const frontValue = currentCard ? getStudyFieldValue(currentCard, frontFieldId) : "";
+  const directionPreview = useMemo(
+    () => buildStudyDirectionPreview(activeFields, options.prompt_field_id, options.reveal_field_ids, options.reverse_mode),
+    [activeFields, options.prompt_field_id, options.reveal_field_ids, options.reverse_mode]
+  );
 
   useKeyboardShortcut([" ", "Enter"], () => setRevealed(true), Boolean(currentCard && !revealed));
   useKeyboardShortcut(["ArrowRight", "k", "K"], () => void handleGrade(true), Boolean(currentCard && revealed));
@@ -84,6 +97,11 @@ export function StudySessionPage() {
   useKeyboardShortcut(["Escape"], () => navigate(`/decks/${deckId}`), true);
 
   async function startSession() {
+    if (!options.prompt_field_id || options.reveal_field_ids.length === 0) {
+      notify(t("study.errorChooseFields"), "error");
+      return;
+    }
+
     setStarting(true);
     setSummary(null);
     setStats({ studied: 0, correct: 0, wrong: 0, newlyMastered: 0 });
@@ -95,10 +113,10 @@ export function StudySessionPage() {
       setRevealed(false);
       setLoadError(null);
       if (payload.cards.length === 0) {
-        notify("No cards match this study mode right now.", "info");
+        notify(t("study.errorNoCards"), "info");
       }
     } catch (err) {
-      const message = typeof err === "object" && err && "message" in err ? String(err.message) : "Unable to start the study session.";
+      const message = typeof err === "object" && err && "message" in err ? String(err.message) : t("study.errorStart");
       setLoadError(message);
       notify(message, "error");
     } finally {
@@ -116,10 +134,10 @@ export function StudySessionPage() {
       response = await api.gradeCard({
         session_id: session.session_id,
         card_id: currentCard.id,
-        knew_it: knewIt
+        knew_it: knewIt,
       });
     } catch (err) {
-      const message = typeof err === "object" && err && "message" in err ? String(err.message) : "Unable to grade this card.";
+      const message = typeof err === "object" && err && "message" in err ? String(err.message) : t("study.errorGrade");
       notify(message, "error");
       return;
     }
@@ -135,7 +153,7 @@ export function StudySessionPage() {
       remaining.splice(insertIndex, 0, currentCard);
       setRequeueCounts((current) => ({
         ...current,
-        [currentCard.id]: (current[currentCard.id] ?? 0) + 1
+        [currentCard.id]: (current[currentCard.id] ?? 0) + 1,
       }));
     }
     setQueue(remaining);
@@ -144,7 +162,7 @@ export function StudySessionPage() {
       studied: nextStudied,
       correct: nextCorrect,
       wrong: nextWrong,
-      newlyMastered: nextNewlyMastered
+      newlyMastered: nextNewlyMastered,
     });
 
     if (remaining.length === 0) {
@@ -155,27 +173,36 @@ export function StudySessionPage() {
           studied_count: nextStudied,
           correct_count: nextCorrect,
           wrong_count: nextWrong,
-          newly_mastered_count: nextNewlyMastered
+          newly_mastered_count: nextNewlyMastered,
         });
         setSummary(nextSummary);
       } catch (err) {
-        const message = typeof err === "object" && err && "message" in err ? String(err.message) : "Unable to complete this session.";
+        const message = typeof err === "object" && err && "message" in err ? String(err.message) : t("study.errorComplete");
         notify(message, "error");
       }
     }
+  }
+
+  function toggleRevealField(fieldId: number) {
+    setOptions((current) => ({
+      ...current,
+      reveal_field_ids: current.reveal_field_ids.includes(fieldId)
+        ? current.reveal_field_ids.filter((id) => id !== fieldId)
+        : [...current.reveal_field_ids, fieldId],
+    }));
   }
 
   return (
     <div className="study-page">
       <section className="page-header">
         <div>
-          <p className="eyebrow">Study</p>
-          <h1>{deck?.name ?? "Study session"}</h1>
-          <p>One card at a time, with keyboard shortcuts and session-local reinforcement for misses.</p>
+          <p className="eyebrow">{t("study.title")}</p>
+          <h1>{deck?.name ?? t("study.title")}</h1>
+          <p>{t("study.subtitle")}</p>
         </div>
         <div className="page-header__actions">
           <Button variant="secondary" onClick={() => navigate(`/decks/${deckId}`)}>
-            Back to deck
+            {t("common.back")}
           </Button>
         </div>
       </section>
@@ -185,70 +212,89 @@ export function StudySessionPage() {
       {!session || summary ? (
         <section className="study-layout">
           <div className="study-config surface-panel">
-            <h2>{summary ? "Session summary" : "Session options"}</h2>
+            <h2>{summary ? t("study.summary") : t("study.options")}</h2>
 
             {summary ? (
               <div className="form-stack">
                 <div className="stat-grid">
-                  <StatCard label="Studied" value={summary.studied_count} />
-                  <StatCard label="Accuracy" value={`${summary.accuracy_percent}%`} />
-                  <StatCard label="Wrong" value={summary.wrong_count} />
-                  <StatCard label="Newly mastered" value={summary.newly_mastered_count} />
+                  <StatCard label={t("study.summaryStudied")} value={summary.studied_count} />
+                  <StatCard label={t("study.summaryAccuracy")} value={`${summary.accuracy_percent}%`} />
+                  <StatCard label={t("study.summaryWrong")} value={summary.wrong_count} />
+                  <StatCard label={t("study.summaryNewlyMastered")} value={summary.newly_mastered_count} />
                 </div>
                 <div className="surface-muted">
-                  <div className="surface-muted__label">What next</div>
+                  <div className="surface-muted__label">{t("study.summaryWhatNext")}</div>
                   <p>{summary.suggestion}</p>
                   <div className="detail-inline-stats">
-                    <span>{summary.remaining_due_cards} due cards remain</span>
+                    <span>{t("study.summaryDueRemain", { count: summary.remaining_due_cards })}</span>
                   </div>
                 </div>
                 <div className="dialog-actions dialog-actions--start">
                   <Button variant="secondary" onClick={() => navigate(`/decks/${deckId}`)}>
-                    Back to deck
+                    {t("common.back")}
                   </Button>
-                  <Button onClick={() => void startSession()}>Study again</Button>
+                  <Button onClick={() => void startSession()}>{t("study.start")}</Button>
                 </div>
               </div>
             ) : (
               <div className="form-stack">
-                <div className="field-grid field-grid--dual">
+                <label className="field">
+                  <span>{t("study.promptField")}</span>
+                  <select
+                    value={options.prompt_field_id}
+                    onChange={(event) =>
+                      setOptions((current) => ({
+                        ...current,
+                        prompt_field_id: Number(event.target.value),
+                        reveal_field_ids: current.reveal_field_ids.filter((fieldId) => fieldId !== Number(event.target.value)),
+                      }))
+                    }
+                  >
+                    {activeFields.map((field) => (
+                      <option key={field.id} value={field.id}>
+                        {field.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <div className="surface-muted">
+                  <div className="surface-muted__label">{t("study.revealFields")}</div>
+                  <div className="checkbox-grid">
+                    {activeFields
+                      .filter((field) => field.id !== options.prompt_field_id)
+                      .map((field) => (
+                        <label key={field.id} className="field field--checkbox">
+                          <input
+                            type="checkbox"
+                            checked={options.reveal_field_ids.includes(field.id)}
+                            onChange={() => toggleRevealField(field.id)}
+                          />
+                          <span>{field.label}</span>
+                        </label>
+                      ))}
+                  </div>
+                </div>
+
+                <div className="field-grid field-grid--triple">
                   <label className="field">
-                    <span>Prompt language</span>
-                    <select
-                      value={options.prompt_language}
-                      onChange={(event) =>
-                        setOptions((current) => ({
-                          ...current,
-                          prompt_language: event.target.value as PromptLanguage
-                        }))
-                      }
-                    >
-                      <option value="language_1">{deck?.language_1_label ?? "Language 1"}</option>
-                      <option value="language_2">{deck?.language_2_label ?? "Language 2"}</option>
-                      <option value="language_3">{deck?.language_3_label ?? "Language 3"}</option>
-                    </select>
-                  </label>
-                  <label className="field">
-                    <span>Study mode</span>
+                    <span>{t("study.mode")}</span>
                     <select
                       value={options.mode}
                       onChange={(event) =>
                         setOptions((current) => ({
                           ...current,
-                          mode: event.target.value as StudyMode
+                          mode: event.target.value as StudyMode,
                         }))
                       }
                     >
-                      <option value="mixed">Mixed</option>
-                      <option value="due">Due only</option>
-                      <option value="new">New only</option>
+                      <option value="mixed">{t("study.mode.mixed")}</option>
+                      <option value="due">{t("study.mode.due")}</option>
+                      <option value="new">{t("study.mode.new")}</option>
                     </select>
                   </label>
-                </div>
-
-                <div className="field-grid field-grid--triple">
                   <label className="field">
-                    <span>Cards this session</span>
+                    <span>{t("study.cardsPerSession")}</span>
                     <input
                       type="number"
                       min={1}
@@ -257,7 +303,7 @@ export function StudySessionPage() {
                       onChange={(event) =>
                         setOptions((current) => ({
                           ...current,
-                          cards_limit: Number(event.target.value)
+                          cards_limit: Number(event.target.value),
                         }))
                       }
                     />
@@ -265,32 +311,46 @@ export function StudySessionPage() {
                   <label className="field field--checkbox">
                     <input
                       type="checkbox"
-                      checked={options.random_order}
-                      onChange={(event) => setOptions((current) => ({ ...current, random_order: event.target.checked }))}
-                    />
-                    <span>Random order</span>
-                  </label>
-                  <label className="field field--checkbox">
-                    <input
-                      type="checkbox"
                       checked={options.reverse_mode}
                       onChange={(event) => setOptions((current) => ({ ...current, reverse_mode: event.target.checked }))}
                     />
-                    <span>Reverse mode</span>
+                    <span>{t("study.reverseMode")}</span>
                   </label>
                 </div>
 
+                <label className="field field--checkbox">
+                  <input
+                    type="checkbox"
+                    checked={options.random_order}
+                    onChange={(event) => setOptions((current) => ({ ...current, random_order: event.target.checked }))}
+                  />
+                  <span>{t("study.randomOrder")}</span>
+                </label>
+
                 <div className="surface-muted">
-                  <div className="surface-muted__label">Keyboard</div>
+                  <div className="surface-muted__label">{t("study.directionPreview")}</div>
+                  <div className="detail-inline-stats detail-inline-stats--wrap">
+                    <span>
+                      {t("study.directionFront")}: {directionPreview.front}
+                    </span>
+                    <span>
+                      {t("study.directionReveal")}: {directionPreview.reveal.join(", ")}
+                    </span>
+                  </div>
+                  {options.reverse_mode ? <p>{t("study.reverseHelp")}</p> : null}
+                </div>
+
+                <div className="surface-muted">
+                  <div className="surface-muted__label">{t("study.keyboard")}</div>
                   <div className="detail-inline-stats">
-                    <span>Reveal: Space / Enter</span>
-                    <span>Knew it: K / Right Arrow</span>
-                    <span>Didn't know: D / Left Arrow</span>
+                    <span>{t("study.keyboardReveal")}</span>
+                    <span>{t("study.keyboardKnew")}</span>
+                    <span>{t("study.keyboardDidntKnow")}</span>
                   </div>
                 </div>
 
                 <Button onClick={() => void startSession()} disabled={starting}>
-                  {starting ? "Preparing..." : "Start session"}
+                  {starting ? t("common.loading") : t("study.start")}
                 </Button>
               </div>
             )}
@@ -298,23 +358,20 @@ export function StudySessionPage() {
 
           {!summary ? (
             <div className="study-empty">
-              <EmptyState
-                title="Ready when you are"
-                description="Choose the study direction and launch a local review session."
-              />
+              <EmptyState title={t("study.readyTitle")} description={t("study.readyDescription")} />
             </div>
           ) : null}
         </section>
       ) : queue.length === 0 ? (
         <EmptyState
-          title="No cards available"
-          description="Try a different study mode or import more cards into this deck."
+          title={t("study.noneTitle")}
+          description={t("study.noneDescription")}
           actions={
             <>
               <Button variant="secondary" onClick={() => setSession(null)}>
-                Change options
+                {t("study.changeOptions")}
               </Button>
-              <Button onClick={() => navigate(`/decks/${deckId}`)}>Back to deck</Button>
+              <Button onClick={() => navigate(`/decks/${deckId}`)}>{t("common.back")}</Button>
             </>
           }
         />
@@ -322,71 +379,70 @@ export function StudySessionPage() {
         <section className="study-layout">
           <div className="study-panel">
             <div className="study-progress">
-              <span>{stats.studied + 1} / {totalSteps}</span>
-              <span>{queue.length - 1} remaining</span>
+              <span>
+                {stats.studied + 1} / {totalSteps}
+              </span>
+              <span>
+                {queue.length - 1} {t("study.remaining")}
+              </span>
             </div>
 
             <article className={`flashcard ${revealed ? "flashcard--revealed" : ""}`}>
-              <div className="flashcard__label">
-                {frontField === "language_1"
-                  ? deck?.language_1_label
-                  : frontField === "language_2"
-                    ? deck?.language_2_label
-                    : deck?.language_3_label}
-              </div>
+              <div className="flashcard__label">{activeFieldLabel(activeFields, frontFieldId)}</div>
               <div className="flashcard__prompt">
                 <FieldText value={frontValue} />
               </div>
 
               {revealed ? (
                 <div className="flashcard__answers">
-                  {answerFields.map(([field, value]) => (
-                    <div key={field} className="flashcard__answer-row">
-                      <span className="flashcard__answer-label">
-                        {field === "language_1"
-                          ? deck?.language_1_label
-                          : field === "language_2"
-                            ? deck?.language_2_label
-                            : deck?.language_3_label}
-                      </span>
-                      <FieldText value={value} />
-                    </div>
-                  ))}
-                  {currentCard.note ? (
-                    <div className="flashcard__meta">
-                      <span>Note</span>
-                      <FieldText value={currentCard.note} />
-                    </div>
-                  ) : null}
-                  {currentCard.example_sentence ? (
-                    <div className="flashcard__meta">
-                      <span>Example</span>
-                      <FieldText value={currentCard.example_sentence} />
+                  {answerFieldIds
+                    .filter((fieldId) => !isContextField(activeFields.find((field) => field.id === fieldId) ?? { label: "", language_code: null }))
+                    .map((fieldId) => (
+                      <div key={fieldId} className="flashcard__answer-row">
+                        <span className="flashcard__answer-label">{activeFieldLabel(activeFields, fieldId)}</span>
+                        <FieldText value={getStudyFieldValue(currentCard, fieldId)} />
+                      </div>
+                    ))}
+                  {answerFieldIds.some((fieldId) =>
+                    isContextField(activeFields.find((field) => field.id === fieldId) ?? { label: "", language_code: null })
+                  ) ? (
+                    <div className="flashcard__context-group">
+                      <div className="surface-muted__label">{t("study.answerContext")}</div>
+                      {answerFieldIds
+                        .filter((fieldId) =>
+                          isContextField(activeFields.find((field) => field.id === fieldId) ?? { label: "", language_code: null })
+                        )
+                        .map((fieldId) => (
+                          <div key={fieldId} className="flashcard__meta">
+                            <span className="flashcard__answer-label">{activeFieldLabel(activeFields, fieldId)}</span>
+                            <FieldText value={getStudyFieldValue(currentCard, fieldId)} />
+                          </div>
+                        ))}
                     </div>
                   ) : null}
                 </div>
               ) : (
                 <button className="reveal-button" onClick={() => setRevealed(true)}>
-                  Reveal answer
+                  {t("study.reveal")}
                 </button>
               )}
             </article>
 
             <div className="study-actions">
               <Button variant="danger" disabled={!revealed} onClick={() => void handleGrade(false)}>
-                Didn't know it
+                {t("study.didntKnow")}
               </Button>
               <Button disabled={!revealed} onClick={() => void handleGrade(true)}>
-                Knew it
+                {t("study.knew")}
               </Button>
             </div>
           </div>
 
           <aside className="study-sidebar">
-            <StatCard label="Studied" value={stats.studied} />
-            <StatCard label="Correct" value={stats.correct} />
-            <StatCard label="Wrong" value={stats.wrong} />
-            <StatCard label="Accuracy" value={formatAccuracy(stats.correct, stats.studied)} />
+            <StatCard label={t("study.summaryStudied")} value={stats.studied} />
+            <StatCard label={t("study.sidebarCorrect")} value={stats.correct} />
+            <StatCard label={t("study.summaryWrong")} value={stats.wrong} />
+            <StatCard label={t("study.summaryAccuracy")} value={formatAccuracy(stats.correct, stats.studied)} />
           </aside>
         </section>
       )}

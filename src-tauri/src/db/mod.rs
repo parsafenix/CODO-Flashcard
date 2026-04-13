@@ -17,6 +17,7 @@ pub fn open_connection(path: &Path) -> Result<Connection> {
 pub fn initialize_database(path: &Path) -> Result<()> {
   let connection = open_connection(path)?;
   migrations::run_migrations(&connection)?;
+  repository::dynamic_repo::repair_dynamic_model(&connection)?;
   repository::settings_repo::ensure_default_settings(&connection)?;
   Ok(())
 }

@@ -4,10 +4,12 @@ import { StatCard } from "../../components/ui/StatCard";
 import { useToast } from "../../components/ui/ToastProvider";
 import { api } from "../../lib/api";
 import { formatUtcDateLabel } from "../../lib/format";
+import { useI18n } from "../../lib/i18n";
 import type { AnalyticsResponse } from "../../lib/types";
 
 export function AnalyticsPage() {
   const { notify } = useToast();
+  const { t } = useI18n();
   const [periodDays, setPeriodDays] = useState<7 | 30>(7);
   const [analytics, setAnalytics] = useState<AnalyticsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -20,7 +22,7 @@ export function AnalyticsPage() {
       setAnalytics(response);
       setError(null);
     } catch (err) {
-      const message = typeof err === "object" && err && "message" in err ? String(err.message) : "Unable to load analytics.";
+      const message = typeof err === "object" && err && "message" in err ? String(err.message) : t("analytics.loadError");
       setError(message);
       notify(message, "error");
     } finally {
@@ -36,23 +38,23 @@ export function AnalyticsPage() {
     <div className="analytics-page">
       <section className="page-header">
         <div>
-          <p className="eyebrow">Analytics</p>
-          <h1>Learning health</h1>
-          <p>Track study volume, retention, weak cards, daily momentum, and the balance between new learning and review.</p>
+          <p className="eyebrow">{t("nav.analytics")}</p>
+          <h1>{t("analytics.title")}</h1>
+          <p>{t("analytics.description")}</p>
         </div>
         <div className="page-header__actions">
-          <div className="segmented-control" role="group" aria-label="Analytics period">
+          <div className="segmented-control" role="group" aria-label={t("nav.analytics")}>
             <button
               className={`segmented-control__button ${periodDays === 7 ? "segmented-control__button--active" : ""}`}
               onClick={() => setPeriodDays(7)}
             >
-              Last 7 days
+              {t("analytics.last7")}
             </button>
             <button
               className={`segmented-control__button ${periodDays === 30 ? "segmented-control__button--active" : ""}`}
               onClick={() => setPeriodDays(30)}
             >
-              Last 30 days
+              {t("analytics.last30")}
             </button>
           </div>
         </div>
@@ -61,31 +63,39 @@ export function AnalyticsPage() {
       {error ? <div className="inline-error">{error}</div> : null}
 
       <section className="stat-grid analytics-overview-grid">
-        <StatCard label="Total cards" value={analytics?.overview.total_cards ?? (loading ? "..." : 0)} />
-        <StatCard label="New cards" value={analytics?.overview.new_cards ?? (loading ? "..." : 0)} />
-        <StatCard label="Due cards" value={analytics?.overview.due_cards ?? (loading ? "..." : 0)} />
-        <StatCard label="Mastered" value={analytics?.overview.mastered_cards ?? (loading ? "..." : 0)} />
-        <StatCard label="Reviews completed" value={analytics?.overview.total_reviews_completed ?? (loading ? "..." : 0)} />
-        <StatCard label="Accuracy" value={`${analytics?.overview.review_accuracy_percent ?? 0}%`} />
-        <StatCard label="Retention" value={`${analytics?.overview.retention_score_percent ?? 0}%`} />
+        <StatCard label={t("analytics.overview.totalCards")} value={analytics?.overview.total_cards ?? (loading ? "..." : 0)} />
+        <StatCard label={t("analytics.overview.newCards")} value={analytics?.overview.new_cards ?? (loading ? "..." : 0)} />
+        <StatCard label={t("analytics.overview.dueCards")} value={analytics?.overview.due_cards ?? (loading ? "..." : 0)} />
+        <StatCard label={t("analytics.overview.masteredCards")} value={analytics?.overview.mastered_cards ?? (loading ? "..." : 0)} />
+        <StatCard label={t("analytics.overview.reviews")} value={analytics?.overview.total_reviews_completed ?? (loading ? "..." : 0)} />
         <StatCard
-          label="Daily goal"
+          label={t("analytics.overview.accuracy")}
+          value={`${analytics?.overview.review_accuracy_percent ?? 0}%`}
+          hint={t("analytics.overview.accuracyHint")}
+        />
+        <StatCard
+          label={t("analytics.overview.retention")}
+          value={`${analytics?.overview.retention_score_percent ?? 0}%`}
+          hint={t("analytics.overview.retentionHint")}
+        />
+        <StatCard
+          label={t("analytics.overview.dailyGoal")}
           value={analytics ? `${analytics.daily_goal.completed_today} / ${analytics.daily_goal.daily_review_goal}` : loading ? "..." : "0 / 0"}
-          hint={analytics ? `${analytics.daily_goal.percent_complete}% completed today` : undefined}
+          hint={analytics ? t("analytics.overview.dailyGoalHint", { percent: analytics.daily_goal.percent_complete }) : undefined}
         />
       </section>
 
       <section className="analytics-grid">
         <div className="surface-panel">
-          <h2>Progress over time</h2>
+          <h2>{t("analytics.progressTitle")}</h2>
           <div className="table-shell">
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Date</th>
-                  <th>Reviews</th>
-                  <th>Accuracy</th>
-                  <th>New learned</th>
+                  <th>{t("analytics.progress.date")}</th>
+                  <th>{t("analytics.progress.reviews")}</th>
+                  <th>{t("analytics.progress.accuracy")}</th>
+                  <th>{t("analytics.progress.newLearned")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -103,19 +113,19 @@ export function AnalyticsPage() {
         </div>
 
         <div className="surface-panel">
-          <h2>Daily streak</h2>
+          <h2>{t("analytics.streakTitle")}</h2>
           <div className="stat-grid stat-grid--compact analytics-mini-stats">
-            <StatCard label="Current" value={analytics?.streak.current_streak ?? (loading ? "..." : 0)} />
-            <StatCard label="Longest" value={analytics?.streak.longest_streak ?? (loading ? "..." : 0)} />
+            <StatCard label={t("analytics.streak.current")} value={analytics?.streak.current_streak ?? (loading ? "..." : 0)} />
+            <StatCard label={t("analytics.streak.longest")} value={analytics?.streak.longest_streak ?? (loading ? "..." : 0)} />
           </div>
           <div className="surface-muted">
-            <div className="surface-muted__label">Today</div>
-            <p>{analytics?.streak.studied_today ? "Today's streak is active." : "No graded review has been logged yet today."}</p>
+            <div className="surface-muted__label">{t("common.today")}</div>
+            <p>{analytics?.streak.studied_today ? t("analytics.streakActive") : t("analytics.streakInactive")}</p>
           </div>
         </div>
 
         <div className="surface-panel">
-          <h2>Learning balance</h2>
+          <h2>{t("analytics.learningBalanceTitle")}</h2>
           <div className="analytics-balance">
             <div className="analytics-balance__bar">
               <div
@@ -124,17 +134,20 @@ export function AnalyticsPage() {
               />
             </div>
             <div className="detail-inline-stats">
-              <span>New-card reviews: {analytics?.learning_balance.new_card_reviews ?? 0}</span>
-              <span>Review-card reviews: {analytics?.learning_balance.review_card_reviews ?? 0}</span>
+              <span>{t("analytics.learningBalanceNew", { count: analytics?.learning_balance.new_card_reviews ?? 0 })}</span>
+              <span>{t("analytics.learningBalanceReview", { count: analytics?.learning_balance.review_card_reviews ?? 0 })}</span>
             </div>
             <p>
-              {analytics?.learning_balance.new_card_percent ?? 0}% new learning / {analytics?.learning_balance.review_card_percent ?? 0}% review
+              {t("analytics.learningBalanceSplit", {
+                newPercent: analytics?.learning_balance.new_card_percent ?? 0,
+                reviewPercent: analytics?.learning_balance.review_card_percent ?? 0,
+              })}
             </p>
           </div>
         </div>
 
         <div className="surface-panel">
-          <h2>Smart insights</h2>
+          <h2>{t("analytics.insightsTitle")}</h2>
           {analytics?.insights.length ? (
             <ul className="simple-list">
               {analytics.insights.map((insight) => (
@@ -142,24 +155,24 @@ export function AnalyticsPage() {
               ))}
             </ul>
           ) : (
-            <p>No insights yet. Study a few sessions to start seeing patterns.</p>
+            <p>{t("analytics.insightsEmpty")}</p>
           )}
         </div>
       </section>
 
       <section className="surface-panel">
-        <h2>Weak cards</h2>
-        <p>The most difficult cards are ranked by wrong answers, relearning frequency, low mastery, and weak recent success.</p>
+        <h2>{t("analytics.weakCardsTitle")}</h2>
+        <p>{t("analytics.weakCardsDescription")}</p>
         <div className="table-shell">
           <table className="data-table">
             <thead>
               <tr>
-                <th>Deck</th>
-                <th>Card</th>
-                <th>Difficulty</th>
-                <th>Wrong</th>
-                <th>Mastery</th>
-                <th>Recent success</th>
+                <th>{t("analytics.weakCards.deck")}</th>
+                <th>{t("analytics.weakCards.card")}</th>
+                <th>{t("analytics.weakCards.difficulty")}</th>
+                <th>{t("analytics.weakCards.wrong")}</th>
+                <th>{t("analytics.weakCards.mastery")}</th>
+                <th>{t("analytics.weakCards.recentSuccess")}</th>
               </tr>
             </thead>
             <tbody>
@@ -168,10 +181,25 @@ export function AnalyticsPage() {
                   <td>{card.deck_name}</td>
                   <td>
                     <div className="analytics-card-preview">
-                      <FieldText value={card.language_1} />
-                      <FieldText value={card.language_2} />
-                      <FieldText value={card.language_3} />
-                      {card.needs_attention ? <span className="pill pill--danger">Needs attention</span> : null}
+                      {(card.preview_fields.length > 0
+                        ? card.preview_fields
+                        : [
+                            { label: "1", value: card.language_1, is_context: false },
+                            { label: "2", value: card.language_2, is_context: false },
+                            { label: "3", value: card.language_3, is_context: false },
+                          ]
+                      )
+                        .filter((field) => field.value)
+                        .map((field) => (
+                          <div
+                            key={`${card.card_id}-${field.label}`}
+                            className={`analytics-card-preview__row ${field.is_context ? "analytics-card-preview__row--context" : ""}`}
+                          >
+                            <span className="flashcard__answer-label">{field.label}</span>
+                            <FieldText value={field.value} />
+                          </div>
+                        ))}
+                      {card.needs_attention ? <span className="pill pill--danger">{t("analytics.weakCards.needsAttention")}</span> : null}
                     </div>
                   </td>
                   <td>{card.difficulty_score}</td>

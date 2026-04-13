@@ -8,6 +8,7 @@ import { StatCard } from "../../components/ui/StatCard";
 import { useToast } from "../../components/ui/ToastProvider";
 import { api } from "../../lib/api";
 import { formatRelativeDate } from "../../lib/format";
+import { useI18n } from "../../lib/i18n";
 import type { DeckLibrarySort, DeckSummary } from "../../lib/types";
 import { ImportWizard } from "../import/ImportWizard";
 import { DeckFormModal } from "./DeckFormModal";
@@ -17,6 +18,7 @@ export function DeckLibraryPage() {
   const navigate = useNavigate();
   const { settings } = useAppContext();
   const { notify } = useToast();
+  const { t } = useI18n();
   const [decks, setDecks] = useState<DeckSummary[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -34,7 +36,7 @@ export function DeckLibraryPage() {
       setDecks(response);
       setLoadError(null);
     } catch (err) {
-      const message = typeof err === "object" && err && "message" in err ? String(err.message) : "Unable to load decks.";
+      const message = typeof err === "object" && err && "message" in err ? String(err.message) : t("library.loadError");
       setLoadError(message);
       notify(message, "error");
     } finally {
@@ -54,10 +56,10 @@ export function DeckLibraryPage() {
   async function handleSaveDeck(input: any) {
     if ("id" in input) {
       await api.updateDeck(input);
-      notify("Deck updated.", "success");
+      notify(t("library.deckUpdated"), "success");
     } else {
       await api.createDeck(input);
-      notify("Deck created.", "success");
+      notify(t("library.deckCreated"), "success");
     }
     await loadDecks();
   }
@@ -68,14 +70,14 @@ export function DeckLibraryPage() {
     }
 
     await api.deleteDeck(deleteDeck.id);
-    notify("Deck deleted.", "success");
+    notify(t("library.deckDeleted"), "success");
     setDeleteDeck(null);
     await loadDecks();
   }
 
   async function handleDuplicateDeck(deckId: number) {
     await api.duplicateDeck(deckId);
-    notify("Deck duplicated.", "success");
+    notify(t("library.deckDuplicated"), "success");
     await loadDecks();
   }
 
@@ -84,19 +86,19 @@ export function DeckLibraryPage() {
       <>
         <section className="page-header">
           <div>
-            <p className="eyebrow">Library</p>
-            <h1>Your decks</h1>
-            <p>Build a calm local study library and keep every card offline on your machine.</p>
+            <p className="eyebrow">{t("library.eyebrow")}</p>
+            <h1>{t("library.title")}</h1>
+            <p>{t("library.description")}</p>
           </div>
         </section>
         <EmptyState
-          title="No decks yet"
-          description="Create a deck manually or import a UTF-8 text file to get your first study set ready."
+          title={t("library.noDecks")}
+          description={t("library.noDecksDescription")}
           actions={
             <>
-              <Button onClick={() => setShowCreate(true)}>Create deck</Button>
+              <Button onClick={() => setShowCreate(true)}>{t("library.createDeck")}</Button>
               <Button variant="secondary" onClick={() => setShowImport(true)}>
-                Import vocabulary
+                {t("library.importVocabulary")}
               </Button>
             </>
           }
@@ -108,7 +110,7 @@ export function DeckLibraryPage() {
           defaultDelimiter={settings.import_delimiter}
           onClose={() => setShowImport(false)}
           onImported={async (deckId) => {
-            notify("Import complete.", "success");
+            notify(t("library.importComplete"), "success");
             await loadDecks();
             navigate(`/decks/${deckId}`);
           }}
@@ -121,41 +123,41 @@ export function DeckLibraryPage() {
     <>
       <section className="page-header">
         <div>
-          <p className="eyebrow">Library</p>
-          <h1>Your decks</h1>
-          <p>Search, organize, and launch lightweight study sessions without leaving the desktop app.</p>
+          <p className="eyebrow">{t("library.eyebrow")}</p>
+          <h1>{t("library.title")}</h1>
+          <p>{t("library.description")}</p>
         </div>
         <div className="page-header__actions">
           <Button variant="secondary" onClick={() => setShowImport(true)}>
-            Import vocabulary
+            {t("library.importVocabulary")}
           </Button>
-          <Button onClick={() => setShowCreate(true)}>Create deck</Button>
+          <Button onClick={() => setShowCreate(true)}>{t("library.createDeck")}</Button>
         </div>
       </section>
 
       <section className="stat-grid">
-        <StatCard label="Decks" value={decks.length} />
-        <StatCard label="Cards" value={totalCards} />
-        <StatCard label="Due now" value={dueCards} hint="Scheduled reviews only" />
-        <StatCard label="New cards" value={newCards} hint="Tracked separately from due" />
+        <StatCard label={t("library.stats.decks")} value={decks.length} />
+        <StatCard label={t("library.stats.cards")} value={totalCards} />
+        <StatCard label={t("library.stats.due")} value={dueCards} hint={t("library.stats.dueHint")} />
+        <StatCard label={t("library.stats.new")} value={newCards} hint={t("library.stats.newHint")} />
       </section>
 
       <section className="toolbar toolbar--compact">
         <label className="field field--grow">
-          <span className="sr-only">Search decks</span>
-          <input dir="auto" placeholder="Search decks" value={search} onChange={(event) => setSearch(event.target.value)} />
+          <span className="sr-only">{t("library.searchDecks")}</span>
+          <input dir="auto" placeholder={t("library.searchDecks")} value={search} onChange={(event) => setSearch(event.target.value)} />
         </label>
         <label className="field toolbar__select">
-          <span>Sort decks</span>
+          <span>{t("library.sortDecks")}</span>
           <select value={sort} onChange={(event) => setSort(event.target.value as DeckLibrarySort)}>
-            <option value="due_desc">Most due cards</option>
-            <option value="recent_studied">Most recently studied</option>
-            <option value="new_desc">Most new cards</option>
-            <option value="total_desc">Most cards total</option>
-            <option value="mastered_desc">Most mastered cards</option>
-            <option value="created_desc">Recently created</option>
-            <option value="name_asc">Name (A-Z)</option>
-            <option value="name_desc">Name (Z-A)</option>
+            <option value="due_desc">{t("library.sort.due")}</option>
+            <option value="recent_studied">{t("library.sort.recent")}</option>
+            <option value="new_desc">{t("library.sort.new")}</option>
+            <option value="total_desc">{t("library.sort.total")}</option>
+            <option value="mastered_desc">{t("library.sort.mastered")}</option>
+            <option value="created_desc">{t("library.sort.created")}</option>
+            <option value="name_asc">{t("library.sort.nameAsc")}</option>
+            <option value="name_desc">{t("library.sort.nameDesc")}</option>
           </select>
         </label>
       </section>
@@ -165,7 +167,7 @@ export function DeckLibraryPage() {
           {loadError}
           <div className="dialog-actions dialog-actions--start">
             <Button variant="secondary" onClick={() => void loadDecks()}>
-              Retry
+              {t("common.retry")}
             </Button>
           </div>
         </div>
@@ -177,44 +179,48 @@ export function DeckLibraryPage() {
             <div className="deck-card__head">
               <div>
                 <h2>{deck.name}</h2>
-                <p>{deck.description || "No description yet."}</p>
+                <p>{deck.description || "-"}</p>
               </div>
               <div className="deck-card__badges">
-                <span className="pill">{deck.total_cards} cards</span>
-                <span className="pill">{deck.due_cards} due</span>
+                <span className="pill">
+                  {deck.total_cards} {t("library.cardsSuffix")}
+                </span>
+                <span className="pill">
+                  {deck.due_cards} {t("library.dueSuffix")}
+                </span>
               </div>
             </div>
 
             <dl className="deck-card__stats">
               <div>
-                <dt>New</dt>
+                <dt>{t("library.new")}</dt>
                 <dd>{deck.new_cards}</dd>
               </div>
               <div>
-                <dt>Mastered</dt>
+                <dt>{t("library.mastered")}</dt>
                 <dd>{deck.mastered_cards}</dd>
               </div>
               <div>
-                <dt>Last studied</dt>
+                <dt>{t("library.lastStudied")}</dt>
                 <dd>{formatRelativeDate(deck.last_studied_at)}</dd>
               </div>
             </dl>
 
             <div className="deck-card__actions">
               <Button variant="secondary" onClick={() => navigate(`/study/${deck.id}`)}>
-                Study
+                {t("library.study")}
               </Button>
               <Button variant="ghost" onClick={() => navigate(`/decks/${deck.id}`)}>
-                Open
+                {t("library.open")}
               </Button>
               <Button variant="ghost" onClick={() => setEditingDeck(deck)}>
-                Rename
+                {t("library.editDeck")}
               </Button>
               <Button variant="ghost" onClick={() => void handleDuplicateDeck(deck.id)}>
-                Duplicate
+                {t("library.duplicate")}
               </Button>
               <Button variant="danger" onClick={() => setDeleteDeck(deck)}>
-                Delete
+                {t("common.delete")}
               </Button>
             </div>
           </article>
@@ -237,7 +243,7 @@ export function DeckLibraryPage() {
         defaultDelimiter={settings.import_delimiter}
         onClose={() => setShowImport(false)}
         onImported={async (deckId) => {
-          notify("Import complete.", "success");
+          notify(t("library.importComplete"), "success");
           await loadDecks();
           navigate(`/decks/${deckId}`);
         }}
@@ -245,9 +251,9 @@ export function DeckLibraryPage() {
 
       <ConfirmDialog
         open={Boolean(deleteDeck)}
-        title="Delete deck"
-        description={`Delete "${deleteDeck?.name ?? ""}" and every card inside it? This cannot be undone.`}
-        confirmLabel="Delete deck"
+        title={t("library.deleteDeckTitle")}
+        description={t("library.deleteDeckDescription", { name: deleteDeck?.name ?? "" })}
+        confirmLabel={t("library.deleteDeckConfirm")}
         onCancel={() => setDeleteDeck(null)}
         onConfirm={() => void handleDeleteDeck()}
       />

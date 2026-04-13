@@ -1,9 +1,9 @@
 export type Theme = "light" | "dark";
+export type UiLanguage = "en" | "fa" | "it";
 export type CardStatus = "new" | "learning" | "review" | "mastered";
 export type CardFilter = "all" | "new" | "due" | "mastered" | "weak";
-export type CardSort = "updated_desc" | "created_desc" | "next_review_asc" | "language_1_asc";
+export type CardSort = "updated_desc" | "created_desc" | "next_review_asc" | "primary_field_asc";
 export type StudyMode = "due" | "new" | "mixed";
-export type PromptLanguage = "language_1" | "language_2" | "language_3";
 export type ExportFormat = "txt" | "json";
 export type DeckLibrarySort =
   | "due_desc"
@@ -14,6 +14,35 @@ export type DeckLibrarySort =
   | "total_desc"
   | "mastered_desc"
   | "created_desc";
+export type FieldPresetKind = "language" | "custom";
+
+export interface FieldPreset {
+  id: string;
+  label: string;
+  kind: FieldPresetKind;
+}
+
+export interface DeckField {
+  id: number;
+  deck_id: number;
+  label: string;
+  language_code: string | null;
+  order_index: number;
+  required: boolean;
+  active: boolean;
+  field_type: string;
+  system_key: string | null;
+}
+
+export interface DeckFieldInput {
+  id?: number;
+  label: string;
+  language_code?: string | null;
+  order_index: number;
+  required: boolean;
+  active: boolean;
+  field_type?: string | null;
+}
 
 export interface DeckSummary {
   id: number;
@@ -29,6 +58,9 @@ export interface DeckSummary {
   due_cards: number;
   new_cards: number;
   mastered_cards: number;
+  study_prompt_field_id: number | null;
+  study_reveal_field_ids: number[];
+  fields: DeckField[];
 }
 
 export interface DeckDetail extends DeckSummary {}
@@ -36,13 +68,25 @@ export interface DeckDetail extends DeckSummary {}
 export interface CreateDeckInput {
   name: string;
   description?: string;
-  language_1_label?: string;
-  language_2_label?: string;
-  language_3_label?: string;
+  fields: DeckFieldInput[];
 }
 
 export interface UpdateDeckInput extends CreateDeckInput {
   id: number;
+  deleted_field_ids?: number[];
+}
+
+export interface CardValueRecord {
+  id: number;
+  field_id: number;
+  label: string;
+  language_code: string | null;
+  order_index: number;
+  required: boolean;
+  active: boolean;
+  value: string;
+  normalized_value: string;
+  compact_value: string;
 }
 
 export interface CardRecord {
@@ -54,6 +98,7 @@ export interface CardRecord {
   note: string | null;
   example_sentence: string | null;
   tag: string | null;
+  values: CardValueRecord[];
   created_at: string;
   updated_at: string;
   last_reviewed_at: string | null;
@@ -67,14 +112,14 @@ export interface CardRecord {
   status: CardStatus;
 }
 
+export interface CardValueInput {
+  field_id: number;
+  value: string;
+}
+
 export interface CreateCardInput {
   deck_id: number;
-  language_1: string;
-  language_2: string;
-  language_3: string;
-  note?: string;
-  example_sentence?: string;
-  tag?: string;
+  values: CardValueInput[];
 }
 
 export interface UpdateCardInput extends CreateCardInput {
@@ -94,13 +139,26 @@ export interface InvalidImportLine {
   reason: string;
 }
 
+export interface ImportDetectedColumn {
+  column_index: number;
+  label: string;
+}
+
+export interface ImportColumnMapping {
+  column_index: number;
+  field_id?: number | null;
+  label?: string | null;
+  language_code?: string | null;
+  required?: boolean | null;
+  active?: boolean | null;
+}
+
 export interface ImportPreviewRow {
   line_number: number;
-  language_1: string;
-  language_2: string;
-  language_3: string;
+  columns: string[];
   duplicate: boolean;
   duplicate_reason: string | null;
+  missing_required_fields: string[];
 }
 
 export interface ImportPreviewSummary {
@@ -108,15 +166,18 @@ export interface ImportPreviewSummary {
   valid: number;
   invalid: number;
   duplicates: number;
+  missing_required: number;
   importable: number;
 }
 
 export interface ImportPreviewResponse {
+  detected_columns: ImportDetectedColumn[];
   rows: ImportPreviewRow[];
   invalid_lines: InvalidImportLine[];
   summary: ImportPreviewSummary;
-  header_labels: [string, string, string] | null;
-  can_update_existing_labels: boolean;
+  suggested_new_fields: DeckFieldInput[];
+  unmapped_required_fields: string[];
+  ready_for_commit: boolean;
 }
 
 export type ImportTarget =
@@ -128,9 +189,6 @@ export type ImportTarget =
       mode: "new";
       name: string;
       description?: string;
-      language_1_label?: string;
-      language_2_label?: string;
-      language_3_label?: string;
     };
 
 export interface ImportPreviewRequest {
@@ -138,11 +196,11 @@ export interface ImportPreviewRequest {
   delimiter: string;
   has_header: boolean;
   target: ImportTarget;
+  create_fields_from_header: boolean;
+  mappings: ImportColumnMapping[];
 }
 
-export interface CommitImportRequest extends ImportPreviewRequest {
-  apply_header_labels_to_existing: boolean;
-}
+export interface CommitImportRequest extends ImportPreviewRequest {}
 
 export interface ImportCommitResponse {
   deck_id: number;
@@ -155,7 +213,8 @@ export interface ImportCommitResponse {
 
 export interface StudySessionOptions {
   deck_id: number;
-  prompt_language: PromptLanguage;
+  prompt_field_id: number;
+  reveal_field_ids: number[];
   mode: StudyMode;
   random_order: boolean;
   reverse_mode: boolean;
@@ -171,6 +230,7 @@ export interface StudyCard {
   note: string | null;
   example_sentence: string | null;
   tag: string | null;
+  values: CardValueRecord[];
   status: CardStatus;
   next_review_at: string | null;
 }
@@ -220,7 +280,7 @@ export interface SessionSummary {
 
 export interface AppSettings {
   theme: Theme;
-  default_prompt_language: PromptLanguage;
+  ui_language: UiLanguage;
   cards_per_session: number;
   default_study_mode: StudyMode;
   random_order: boolean;
@@ -232,6 +292,7 @@ export interface AppSettings {
   reminder_last_acknowledged_date: string | null;
   import_delimiter: string;
   last_backup_directory: string | null;
+  field_presets: FieldPreset[];
 }
 
 export interface AnalyticsRequest {
@@ -262,6 +323,11 @@ export interface WeakCardAnalytics {
   language_1: string;
   language_2: string;
   language_3: string;
+  preview_fields: Array<{
+    label: string;
+    value: string;
+    is_context: boolean;
+  }>;
   status: CardStatus;
   wrong_count: number;
   mastery_score: number;

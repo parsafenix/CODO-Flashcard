@@ -4,7 +4,7 @@ use tauri::State;
 use crate::{
   db::{
     open_connection,
-    repository::{card_repo, deck_repo, study_repo},
+    repository::{card_repo, deck_repo, dynamic_repo, settings_repo, study_repo},
   },
   models::{
     error::AppError,
@@ -61,6 +61,12 @@ pub fn start_study_session(
   let deck = deck_repo::get_deck(&connection, sanitized_options.deck_id)
     .map_err(map_error)?
     .ok_or_else(|| AppError::new("not_found", "Deck not found."))?;
+
+  dynamic_repo::ensure_field_belongs_to_deck(&connection, sanitized_options.deck_id, sanitized_options.prompt_field_id)
+    .map_err(map_error)?;
+  for field_id in &sanitized_options.reveal_field_ids {
+    dynamic_repo::ensure_field_belongs_to_deck(&connection, sanitized_options.deck_id, *field_id).map_err(map_error)?;
+  }
 
   let cards = card_repo::get_cards_for_study(&connection, sanitized_options.deck_id, sanitized_options.mode)
     .map_err(map_error)?;
@@ -119,5 +125,6 @@ pub fn complete_study_session(
   if session.deck_id != input.deck_id {
     return Err(AppError::new("study_error", "This study session does not match the selected deck."));
   }
-  study_repo::complete_session(&connection, &input).map_err(map_error)
+  let settings = settings_repo::get_settings(&connection).map_err(map_error)?;
+  study_repo::complete_session(&connection, &input, settings.ui_language).map_err(map_error)
 }

@@ -1,5 +1,6 @@
 import { type PropsWithChildren, useEffect } from "react";
 import { createPortal } from "react-dom";
+import { useI18n } from "../../lib/i18n";
 
 interface ModalProps {
   open: boolean;
@@ -10,6 +11,8 @@ interface ModalProps {
 }
 
 export function Modal({ open, title, description, onClose, width = "medium", children }: PropsWithChildren<ModalProps>) {
+  const { t } = useI18n();
+
   useEffect(() => {
     if (!open) {
       return;
@@ -43,8 +46,8 @@ export function Modal({ open, title, description, onClose, width = "medium", chi
             <h2 id="modal-title">{title}</h2>
             {description ? <p>{description}</p> : null}
           </div>
-          <button className="icon-button" aria-label="Close modal" onClick={onClose}>
-            x
+          <button className="icon-button" aria-label={t("common.close")} onClick={onClose}>
+            <span aria-hidden="true">×</span>
           </button>
         </header>
         <div className="modal__body">{children}</div>

@@ -14,6 +14,12 @@ fn map_error(error: anyhow::Error) -> AppError {
   if message == "Deck name is required." {
     return AppError::field("validation", message, "name");
   }
+  if message == "At least 2 active fields are required."
+    || message == "At least 1 active required field is required."
+    || message == "Every field needs a label."
+  {
+    return AppError::field("validation", message, "fields");
+  }
   AppError::new("deck_error", message)
 }
 
@@ -54,4 +60,3 @@ pub fn duplicate_deck(state: State<'_, AppState>, deck_id: i64) -> Result<DeckDe
   let mut connection = open_connection(&state.db_path).map_err(AppError::from)?;
   deck_repo::duplicate_deck(&mut connection, deck_id).map_err(map_error)
 }
-
