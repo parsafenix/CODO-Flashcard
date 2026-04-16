@@ -5,7 +5,7 @@ use chrono::Utc;
 use rusqlite::{params, params_from_iter, ffi, Connection, Error, OptionalExtension, Row, ToSql};
 
 use crate::models::types::{
-  CardFilter, CardListQuery, CardRecord, CardSchedulingRecord, CardSort, CardStatus, CreateCardInput,
+  CardFilter, CardListQuery, CardRecord, CardSchedulingRecord, CardSort, CardStatus, CreateCardInput, ReviewUnitState,
   StudyCard, StudyMode, UpdateCardInput,
 };
 
@@ -48,9 +48,11 @@ fn map_card_base(row: &Row<'_>) -> rusqlite::Result<CardRecord> {
 }
 
 fn map_study_card(row: &Row<'_>) -> rusqlite::Result<StudyCard> {
+  let status = CardStatus::from_db(&row.get::<_, String>("status")?);
   Ok(StudyCard {
     id: row.get("id")?,
     deck_id: row.get("deck_id")?,
+    review_unit_id: 0,
     language_1: row.get("language_1")?,
     language_2: row.get("language_2")?,
     language_3: row.get("language_3")?,
@@ -58,8 +60,20 @@ fn map_study_card(row: &Row<'_>) -> rusqlite::Result<StudyCard> {
     example_sentence: row.get("example_sentence")?,
     tag: row.get("tag")?,
     values: Vec::new(),
-    status: CardStatus::from_db(&row.get::<_, String>("status")?),
+    status,
     next_review_at: row.get("next_review_at")?,
+    review_state: match status {
+      CardStatus::New => ReviewUnitState::New,
+      CardStatus::Learning => ReviewUnitState::Learning,
+      CardStatus::Review => ReviewUnitState::Review,
+      CardStatus::Mastered => ReviewUnitState::Review,
+    },
+    due_at_utc: row.get("next_review_at")?,
+    mastered: matches!(status, CardStatus::Mastered),
+    leech: false,
+    suspended: false,
+    difficulty: 5.0,
+    stability_days: (row.get::<_, i64>("current_interval_minutes").unwrap_or(0).max(0) as f64) / (24.0 * 60.0),
   })
 }
 
@@ -297,18 +311,21 @@ pub fn get_cards_for_study(connection: &Connection, deck_id: i64, mode: StudyMod
   let sql = match mode {
     StudyMode::Due => {
       "SELECT id, deck_id, language_1, language_2, language_3, note, example_sentence, tag, status, next_review_at
+        , current_interval_minutes
         FROM cards
         WHERE deck_id = ?1 AND status != 'new' AND next_review_at IS NOT NULL AND next_review_at <= ?2
         ORDER BY next_review_at ASC, updated_at ASC"
     }
     StudyMode::New => {
       "SELECT id, deck_id, language_1, language_2, language_3, note, example_sentence, tag, status, next_review_at
+        , current_interval_minutes
         FROM cards
         WHERE deck_id = ?1 AND status = 'new'
         ORDER BY created_at ASC"
     }
     StudyMode::Mixed => {
       "SELECT id, deck_id, language_1, language_2, language_3, note, example_sentence, tag, status, next_review_at
+        , current_interval_minutes
         FROM cards
         WHERE deck_id = ?1 AND (
           status = 'new' OR (status != 'new' AND next_review_at IS NOT NULL AND next_review_at <= ?2)

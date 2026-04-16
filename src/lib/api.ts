@@ -15,12 +15,16 @@ import type {
   ExportDeckInput,
   GradeCardInput,
   GradeCardResponse,
+  DailyCoachResponse,
   ImportPreviewRequest,
   ImportPreviewResponse,
   ImportCommitResponse,
+  RunCalibrationRequest,
+  SchedulerCalibrationStatus,
   SessionSummary,
   StudySessionOptions,
   StudySessionPayload,
+  UiPreferences,
   UpdateCardInput,
   UpdateDeckInput
 } from "./types";
@@ -79,8 +83,14 @@ export const api = {
   completeStudySession: (input: CompleteStudySessionInput) =>
     call<SessionSummary>("complete_study_session", { input }),
   getAnalytics: (request: AnalyticsRequest) => call<AnalyticsResponse>("get_analytics", { request }),
+  getDailyCoach: () => call<DailyCoachResponse>("get_daily_coach"),
+  getSchedulerCalibrationStatus: () => call<SchedulerCalibrationStatus>("get_scheduler_calibration_status"),
+  runSchedulerCalibration: (request: RunCalibrationRequest = {}) =>
+    call<SchedulerCalibrationStatus>("run_scheduler_calibration", { request }),
   getSettings: () => call<AppSettings>("get_settings"),
   updateSettings: (settings: AppSettings) => call<AppSettings>("update_settings", { settings }),
+  getUiPreferences: () => call<UiPreferences>("get_ui_preferences"),
+  updateUiPreferences: (preferences: UiPreferences) => call<UiPreferences>("update_ui_preferences", { preferences }),
   exportDeck: (input: ExportDeckInput) => call<void>("export_deck", { input }),
   createBackup: (directoryPath: string) =>
     call<BackupResult>("create_backup", { directoryPath }),

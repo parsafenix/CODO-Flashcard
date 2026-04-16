@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate, NavLink, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "../components/ui/Button";
 import { ToastProvider } from "../components/ui/ToastProvider";
@@ -11,9 +11,12 @@ import { SettingsPage } from "../features/settings/SettingsPage";
 import { StudySessionPage } from "../features/study/StudySessionPage";
 import { api } from "../lib/api";
 import { I18nProvider, useI18n } from "../lib/i18n";
-import type { AppSettings } from "../lib/types";
+import { localizeAppMessage } from "../lib/messages";
+import type { AppSettings, UiLanguage, UiPreferences } from "../lib/types";
 import { AppContext } from "./AppContext";
 import { useAppContext } from "./AppContext";
+
+const UI_LANGUAGE_CACHE_KEY = "codo.ui_language";
 
 function AppShell() {
   const location = useLocation();
@@ -79,8 +82,8 @@ function AppShell() {
               <img src={lightLogo} alt="" className="brand__logo brand__logo--light" />
             </div>
             <div>
-              <h1>CODO</h1>
-              <p>CODO: Flashcard</p>
+              <h1>{t("app.brandShort")}</h1>
+              <p>{t("app.brandFull")}</p>
             </div>
           </div>
 
@@ -144,24 +147,76 @@ function AppShell() {
   );
 }
 
+function BootScreen({ error, onRetry, language }: { error?: string | null; onRetry?: () => void; language: UiLanguage }) {
+  return (
+    <I18nProvider language={language}>
+      <BootScreenBody error={error} onRetry={onRetry} />
+    </I18nProvider>
+  );
+}
+
+function BootScreenBody({ error, onRetry }: { error?: string | null; onRetry?: () => void }) {
+  const { t } = useI18n();
+  const message = error ? localizeAppMessage(error, t) : t("app.loadingWorkspace");
+
+  return (
+    <div className="boot-screen">
+      <h1>{t("app.brandFull")}</h1>
+      <p>{message}</p>
+      {error && onRetry ? <Button onClick={onRetry}>{t("common.retry")}</Button> : null}
+    </div>
+  );
+}
+
 export function App() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [uiPreferences, setUiPreferences] = useState<UiPreferences | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const bootLanguage = useMemo<UiLanguage>(() => {
+    const cached = window.localStorage.getItem(UI_LANGUAGE_CACHE_KEY);
+    if (cached === "fa" || cached === "it" || cached === "en") {
+      return cached;
+    }
+    return "en";
+  }, []);
 
-  async function refreshSettings() {
+  const refreshSettings = useCallback(async () => {
     try {
-      const nextSettings = await api.getSettings();
+      const [nextSettings, nextUiPreferences] = await Promise.all([api.getSettings(), api.getUiPreferences()]);
       setSettings(nextSettings);
+      setUiPreferences(nextUiPreferences);
       setError(null);
+      window.localStorage.setItem(UI_LANGUAGE_CACHE_KEY, nextSettings.ui_language);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to load settings.";
       setError(message);
     }
-  }
+  }, []);
+
+  const refreshUiPreferences = useCallback(async () => {
+    try {
+      const nextUiPreferences = await api.getUiPreferences();
+      setUiPreferences(nextUiPreferences);
+    } catch {
+      // Keep the current in-memory preferences if refreshing fails.
+    }
+  }, []);
+
+  const persistUiPreferences = useCallback(async (nextPreferences: UiPreferences) => {
+    setUiPreferences(nextPreferences);
+    try {
+      const saved = await api.updateUiPreferences(nextPreferences);
+      setUiPreferences(saved);
+      return saved;
+    } catch (err) {
+      await refreshUiPreferences();
+      throw err;
+    }
+  }, [refreshUiPreferences]);
 
   useEffect(() => {
     void refreshSettings();
-  }, []);
+  }, [refreshSettings]);
 
   useEffect(() => {
     if (!settings) {
@@ -169,29 +224,29 @@ export function App() {
     }
 
     document.documentElement.dataset.theme = settings.theme;
+    window.localStorage.setItem(UI_LANGUAGE_CACHE_KEY, settings.ui_language);
   }, [settings]);
 
   if (error) {
-    return (
-      <div className="boot-screen">
-        <h1>CODO: Flashcard</h1>
-        <p>{error}</p>
-        <Button onClick={() => void refreshSettings()}>Retry</Button>
-      </div>
-    );
+    return <BootScreen error={error} onRetry={() => void refreshSettings()} language={settings?.ui_language ?? bootLanguage} />;
   }
 
-  if (!settings) {
-    return (
-      <div className="boot-screen">
-        <h1>CODO: Flashcard</h1>
-        <p>Loading your local workspace...</p>
-      </div>
-    );
+  if (!settings || !uiPreferences) {
+    return <BootScreen language={settings?.ui_language ?? bootLanguage} />;
   }
+
+  const appContextValue = {
+    settings,
+    setSettings,
+    refreshSettings,
+    uiPreferences,
+    setUiPreferences,
+    refreshUiPreferences,
+    persistUiPreferences,
+  };
 
   return (
-    <AppContext.Provider value={{ settings, setSettings, refreshSettings }}>
+    <AppContext.Provider value={appContextValue}>
       <I18nProvider language={settings.ui_language}>
         <ToastProvider>
           <Routes>

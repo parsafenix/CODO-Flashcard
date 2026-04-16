@@ -7,6 +7,7 @@ import { Modal } from "../../components/ui/Modal";
 import { getActiveFields } from "../../lib/deckFields";
 import { useI18n } from "../../lib/i18n";
 import { api } from "../../lib/api";
+import { localizeAppMessage } from "../../lib/messages";
 import type {
   CommitImportRequest,
   DeckSummary,
@@ -174,7 +175,10 @@ export function ImportWizard({ open: isOpen, decks, fixedDeck, defaultDelimiter,
         initializeMappings(response);
       }
     } catch (err) {
-      const message = typeof err === "object" && err && "message" in err ? String(err.message) : t("import.previewFailed");
+      const message = localizeAppMessage(
+        typeof err === "object" && err && "message" in err ? String(err.message) : t("import.previewFailed"),
+        t
+      );
       setError(message);
     } finally {
       setLoadingPreview(false);
@@ -194,7 +198,10 @@ export function ImportWizard({ open: isOpen, decks, fixedDeck, defaultDelimiter,
       await onImported(result.deck_id);
       onClose();
     } catch (err) {
-      const message = typeof err === "object" && err && "message" in err ? String(err.message) : t("import.commitFailed");
+      const message = localizeAppMessage(
+        typeof err === "object" && err && "message" in err ? String(err.message) : t("import.commitFailed"),
+        t
+      );
       setError(message);
     } finally {
       setCommitting(false);
@@ -445,7 +452,9 @@ export function ImportWizard({ open: isOpen, decks, fixedDeck, defaultDelimiter,
                         {row.duplicate ? (
                           <div className="status-stack">
                             <span className="pill pill--danger">{t("import.statusDuplicate")}</span>
-                            <span className="table-note">{row.duplicate_reason}</span>
+                            <span className="table-note">
+                              {row.duplicate_reason ? localizeAppMessage(row.duplicate_reason, t) : null}
+                            </span>
                           </div>
                         ) : row.missing_required_fields.length > 0 ? (
                           <div className="status-stack">
@@ -468,7 +477,7 @@ export function ImportWizard({ open: isOpen, decks, fixedDeck, defaultDelimiter,
                 <ul className="simple-list">
                   {preview.invalid_lines.slice(0, 6).map((line) => (
                     <li key={line.line_number}>
-                      {t("import.line")} {line.line_number}: {line.reason}
+                      {t("import.line")} {line.line_number}: {localizeAppMessage(line.reason, t)}
                     </li>
                   ))}
                 </ul>

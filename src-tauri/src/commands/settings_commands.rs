@@ -6,7 +6,7 @@ use crate::{
   db::{initialize_database, open_connection},
   models::{
     error::AppError,
-    types::{AppSettings, BackupResult, ExportDeckInput},
+    types::{AppSettings, BackupResult, ExportDeckInput, UiPreferences},
   },
   services::{backup, exporter},
   AppState,
@@ -26,6 +26,21 @@ pub fn get_settings(state: State<'_, AppState>) -> Result<AppSettings, AppError>
 pub fn update_settings(state: State<'_, AppState>, settings: AppSettings) -> Result<AppSettings, AppError> {
   let connection = open_connection(&state.db_path).map_err(AppError::from)?;
   crate::db::repository::settings_repo::save_settings(&connection, &settings).map_err(map_error)
+}
+
+#[tauri::command]
+pub fn get_ui_preferences(state: State<'_, AppState>) -> Result<UiPreferences, AppError> {
+  let connection = open_connection(&state.db_path).map_err(AppError::from)?;
+  crate::db::repository::settings_repo::get_ui_preferences(&connection).map_err(map_error)
+}
+
+#[tauri::command]
+pub fn update_ui_preferences(
+  state: State<'_, AppState>,
+  preferences: UiPreferences,
+) -> Result<UiPreferences, AppError> {
+  let connection = open_connection(&state.db_path).map_err(AppError::from)?;
+  crate::db::repository::settings_repo::save_ui_preferences(&connection, &preferences).map_err(map_error)
 }
 
 #[tauri::command]

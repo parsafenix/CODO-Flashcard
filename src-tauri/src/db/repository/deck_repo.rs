@@ -4,7 +4,7 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use crate::models::types::{CreateDeckInput, DeckDetail, DeckField, DeckFieldInput, DeckSummary, UpdateDeckInput};
 
-use super::dynamic_repo;
+use super::{dynamic_repo, review_unit_repo};
 
 fn now_utc() -> String {
   Utc::now().to_rfc3339()
@@ -309,6 +309,7 @@ pub fn update_deck(connection: &Connection, input: &UpdateDeckInput) -> Result<D
     .filter(|field| field.active)
     .map(|field| field.id)
     .collect::<Vec<_>>();
+  review_unit_repo::delete_invalid_direction_units(&transaction, input.id, &active_field_ids)?;
   let prompt_invalid = prompt_field_id.map(|field_id| !active_field_ids.contains(&field_id)).unwrap_or(true);
   let reveal_invalid = reveal_field_ids.is_empty() || reveal_field_ids.iter().any(|field_id| !active_field_ids.contains(field_id));
   if prompt_invalid || reveal_invalid {
@@ -319,6 +320,7 @@ pub fn update_deck(connection: &Connection, input: &UpdateDeckInput) -> Result<D
   }
 
   dynamic_repo::recompute_deck_card_caches(&transaction, input.id)?;
+  review_unit_repo::sync_deck_card_caches(&transaction, input.id)?;
   transaction.commit()?;
   get_deck(connection, input.id)?.context("Deck not found after update")
 }

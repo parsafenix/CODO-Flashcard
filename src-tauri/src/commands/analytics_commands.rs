@@ -4,9 +4,9 @@ use crate::{
   db::{open_connection, repository::settings_repo},
   models::{
     error::AppError,
-    types::{AnalyticsRequest, AnalyticsResponse},
+    types::{AnalyticsRequest, AnalyticsResponse, DailyCoachResponse},
   },
-  services::analytics,
+  services::{analytics, daily_coach},
   AppState,
 };
 
@@ -22,4 +22,12 @@ pub fn get_analytics(
   let connection = open_connection(&state.db_path).map_err(AppError::from)?;
   let settings = settings_repo::get_settings(&connection).map_err(map_error)?;
   analytics::get_analytics(&connection, &settings, &request).map_err(map_error)
+}
+
+#[tauri::command]
+pub fn get_daily_coach(state: State<'_, AppState>) -> Result<DailyCoachResponse, AppError> {
+  let connection = open_connection(&state.db_path).map_err(AppError::from)?;
+  let settings = settings_repo::get_settings(&connection).map_err(map_error)?;
+  let preferences = settings_repo::get_ui_preferences(&connection).map_err(map_error)?;
+  daily_coach::get_daily_coach(&connection, &settings, &preferences).map_err(map_error)
 }

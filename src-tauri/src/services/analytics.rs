@@ -3,10 +3,11 @@ use chrono::{Days, Local, NaiveDate, Timelike, Utc};
 use rusqlite::Connection;
 
 use crate::{
-  db::repository::analytics_repo,
+  db::repository::{analytics_repo, scheduler_repo},
   models::types::{
     AnalyticsRequest, AnalyticsResponse, AppSettings, DailyGoalProgress, OverviewMetrics, ReminderState, StreakStats, UiLanguage,
   },
+  services::calibration,
 };
 
 fn normalize_period_days(request: &AnalyticsRequest) -> i64 {
@@ -176,9 +177,14 @@ fn build_insights(
 
 pub fn get_analytics(connection: &Connection, settings: &AppSettings, request: &AnalyticsRequest) -> Result<AnalyticsResponse> {
   let period_days = normalize_period_days(request);
+  let active_parameters = scheduler_repo::get_active_parameters(connection).unwrap_or_default();
   let overview = analytics_repo::get_overview_metrics(connection)?;
+  let outcomes = analytics_repo::get_learning_outcomes(connection)?;
   let progress = analytics_repo::get_progress_points(connection, period_days)?;
   let weak_cards = analytics_repo::get_weak_cards(connection, 12)?;
+  let scheduler_health = analytics_repo::get_scheduler_health(connection, settings.desired_retention, &active_parameters)?;
+  let calibration = calibration::get_calibration_status(connection)?;
+  let content_quality = analytics_repo::get_content_quality(connection, &weak_cards)?;
   let learning_balance = analytics_repo::get_learning_balance(connection, period_days)?;
   let review_dates = analytics_repo::get_review_dates(connection)?;
   let today_utc = Utc::now().date_naive();
@@ -197,6 +203,10 @@ pub fn get_analytics(connection: &Connection, settings: &AppSettings, request: &
   Ok(AnalyticsResponse {
     period_days,
     overview,
+    outcomes,
+    scheduler_health,
+    calibration,
+    content_quality,
     progress,
     weak_cards,
     learning_balance,

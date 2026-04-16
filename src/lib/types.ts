@@ -1,6 +1,8 @@
 export type Theme = "light" | "dark";
 export type UiLanguage = "en" | "fa" | "it";
 export type CardStatus = "new" | "learning" | "review" | "mastered";
+export type ReviewUnitState = "new" | "learning" | "review" | "relearning" | "leech";
+export type ReviewRating = "again" | "hard" | "good" | "easy";
 export type CardFilter = "all" | "new" | "due" | "mastered" | "weak";
 export type CardSort = "updated_desc" | "created_desc" | "next_review_asc" | "primary_field_asc";
 export type StudyMode = "due" | "new" | "mixed";
@@ -224,6 +226,7 @@ export interface StudySessionOptions {
 export interface StudyCard {
   id: number;
   deck_id: number;
+  review_unit_id: number;
   language_1: string;
   language_2: string;
   language_3: string;
@@ -233,6 +236,13 @@ export interface StudyCard {
   values: CardValueRecord[];
   status: CardStatus;
   next_review_at: string | null;
+  review_state: ReviewUnitState;
+  due_at_utc: string | null;
+  mastered: boolean;
+  leech: boolean;
+  suspended: boolean;
+  difficulty: number;
+  stability_days: number;
 }
 
 export interface StudySessionPayload {
@@ -245,16 +255,24 @@ export interface StudySessionPayload {
 export interface GradeCardInput {
   session_id: number;
   card_id: number;
-  knew_it: boolean;
+  review_unit_id: number;
+  rating: ReviewRating;
+  latency_ms?: number | null;
+  hint_used?: boolean;
+  confidence?: number | null;
 }
 
 export interface GradeCardResponse {
   card_id: number;
-  status: CardStatus;
-  next_review_at: string | null;
-  current_interval_minutes: number;
-  ease_factor: number;
-  mastery_score: number;
+  review_unit_id: number;
+  review_state: ReviewUnitState;
+  due_at_utc: string | null;
+  scheduled_interval_days: number;
+  retrievability_before: number;
+  difficulty: number;
+  stability_days: number;
+  mastered: boolean;
+  leech: boolean;
   newly_mastered: boolean;
 }
 
@@ -287,12 +305,24 @@ export interface AppSettings {
   reverse_mode: boolean;
   reveal_all_on_flip: boolean;
   daily_review_goal: number;
+  desired_retention: number;
   reminder_enabled: boolean;
   reminder_time: string;
   reminder_last_acknowledged_date: string | null;
   import_delimiter: string;
   last_backup_directory: string | null;
+  learning_steps_minutes: number[];
+  relearning_steps_minutes: number[];
+  leech_lapse_threshold: number;
+  calibration_use_recency_weighting: boolean;
+  calibration_recency_half_life_days: number;
   field_presets: FieldPreset[];
+}
+
+export interface UiPreferences {
+  daily_coach_last_dismissed_utc_date: string | null;
+  daily_coach_last_shown_utc_date: string | null;
+  hidden_panels: Record<string, string[]>;
 }
 
 export interface AnalyticsRequest {
@@ -317,6 +347,7 @@ export interface ProgressPoint {
 }
 
 export interface WeakCardAnalytics {
+  review_unit_id: number;
   card_id: number;
   deck_id: number;
   deck_name: string;
@@ -329,12 +360,57 @@ export interface WeakCardAnalytics {
     is_context: boolean;
   }>;
   status: CardStatus;
+  review_state: ReviewUnitState;
   wrong_count: number;
   mastery_score: number;
   relearn_count: number;
   recent_success_rate_percent: number;
   difficulty_score: number;
+  difficulty: number;
+  stability_days: number;
+  leech: boolean;
   needs_attention: boolean;
+}
+
+export interface LearningOutcomeAnalytics {
+  first_pass_success_rate_percent: number;
+  recognition_accuracy_percent: number;
+  production_accuracy_percent: number;
+  retention_7d_percent: number;
+  retention_30d_percent: number;
+  average_time_to_graduation_days: number;
+  average_time_to_mastery_days: number;
+  lapse_rate_percent: number;
+  leech_rate_percent: number;
+  review_burden_per_retained_item: number;
+}
+
+export interface RetentionForecastPoint {
+  desired_retention: number;
+  estimated_due_next_30_days: number;
+}
+
+export interface SchedulerHealthAnalytics {
+  predicted_recall_percent: number;
+  actual_recall_percent: number;
+  average_stability_days: number;
+  average_difficulty: number;
+  successful_stability_growth_percent: number;
+  review_lapse_rate_percent: number;
+  overdue_success_percent: number;
+  on_time_success_percent: number;
+  due_forecast_7d: number;
+  due_forecast_30d: number;
+  workload_forecast_per_day_7d: number;
+  workload_forecast_per_day_30d: number;
+  retention_sensitivity: RetentionForecastPoint[];
+}
+
+export interface ContentQualityAnalytics {
+  hardest_direction_count: number;
+  repeated_again_count: number;
+  leech_count: number;
+  contextual_support_count: number;
 }
 
 export interface LearningBalance {
@@ -369,6 +445,10 @@ export interface ReminderState {
 export interface AnalyticsResponse {
   period_days: number;
   overview: OverviewMetrics;
+  outcomes: LearningOutcomeAnalytics;
+  scheduler_health: SchedulerHealthAnalytics;
+  calibration: SchedulerCalibrationStatus;
+  content_quality: ContentQualityAnalytics;
   progress: ProgressPoint[];
   weak_cards: WeakCardAnalytics[];
   learning_balance: LearningBalance;
@@ -377,6 +457,157 @@ export interface AnalyticsResponse {
   insights: string[];
   reminder: ReminderState;
 }
+
+export interface DailyCoachRecommendation {
+  deck_id: number;
+  deck_name: string;
+  urgency_score: number;
+  priority_label: string;
+  due_cards: number;
+  overdue_cards: number;
+  new_cards: number;
+  weak_direction_count: number;
+  upcoming_due_7d: number;
+  days_since_last_study: number;
+  last_studied_at: string | null;
+  reason_text: string;
+  supporting_reasons: string[];
+}
+
+export interface DailyCoachResponse {
+  today_utc_date: string;
+  studied_today: boolean;
+  dismissed_today: boolean;
+  should_prompt: boolean;
+  daily_goal_remaining: number;
+  recommendations: DailyCoachRecommendation[];
+}
+
+export interface SchedulerParameterValue {
+  name: string;
+  label: string;
+  value: number;
+  default_value: number;
+  min: number;
+  max: number;
+}
+
+export interface CalibrationMetrics {
+  event_count: number;
+  log_loss: number;
+  rmse_bins: number;
+  auc: number;
+  brier_score: number;
+  calibration_slope: number | null;
+  calibration_intercept: number | null;
+}
+
+export interface CalibrationSplitMetrics {
+  training: CalibrationMetrics;
+  validation: CalibrationMetrics;
+  test: CalibrationMetrics;
+}
+
+export interface CalibrationCurvePoint {
+  bin_index: number;
+  label: string;
+  average_predicted: number;
+  actual_rate: number;
+  event_count: number;
+}
+
+export interface CalibrationBreakdownRow {
+  label: string;
+  event_count: number;
+  average_predicted: number;
+  actual_rate: number;
+  log_loss: number;
+  brier_score: number;
+}
+
+export interface CalibrationDiagnostics {
+  curve: CalibrationCurvePoint[];
+  error_by_state: CalibrationBreakdownRow[];
+  error_by_rating: CalibrationBreakdownRow[];
+  retention_by_elapsed_band: CalibrationBreakdownRow[];
+}
+
+export interface CalibrationWorkloadForecast {
+  due_next_7d: number;
+  due_next_30d: number;
+  expected_recall_at_due_percent: number;
+}
+
+export interface CalibrationWorkloadComparison {
+  active: CalibrationWorkloadForecast;
+  candidate: CalibrationWorkloadForecast;
+  workload_change_percent_7d: number;
+  workload_change_percent_30d: number;
+}
+
+export interface CalibrationDataSufficiency {
+  enough_data: boolean;
+  minimum_usable_events: number;
+  minimum_distinct_review_units: number;
+  minimum_mature_review_events: number;
+  minimum_failure_events: number;
+  total_events: number;
+  usable_events: number;
+  filtered_events: number;
+  distinct_review_units: number;
+  deck_coverage_count: number;
+  mature_review_events: number;
+  failure_events: number;
+}
+
+export interface SchedulerCalibrationProfile {
+  id: number;
+  profile_key: string;
+  profile_version: string;
+  label: string;
+  source: string;
+  is_active: boolean;
+  created_at: string;
+  activated_at: string | null;
+  metrics: CalibrationSplitMetrics | null;
+  parameters: SchedulerParameterValue[];
+  notes: string | null;
+}
+
+export interface SchedulerCalibrationRunSummary {
+  id: number;
+  status: string;
+  accepted: boolean;
+  started_at: string;
+  completed_at: string | null;
+  used_recency_weighting: boolean;
+  recency_half_life_days: number | null;
+  total_events: number;
+  usable_events: number;
+  filtered_events: number;
+  distinct_review_units: number;
+  deck_coverage_count: number;
+  mature_review_events: number;
+  failure_events: number;
+  train_events: number;
+  validation_events: number;
+  test_events: number;
+  split_train_end_utc: string | null;
+  split_validation_end_utc: string | null;
+  baseline_metrics: CalibrationSplitMetrics;
+  candidate_metrics: CalibrationSplitMetrics | null;
+  diagnostics: CalibrationDiagnostics | null;
+  workload: CalibrationWorkloadComparison | null;
+  reason: string | null;
+}
+
+export interface SchedulerCalibrationStatus {
+  active_profile: SchedulerCalibrationProfile;
+  latest_run: SchedulerCalibrationRunSummary | null;
+  sufficiency: CalibrationDataSufficiency;
+}
+
+export interface RunCalibrationRequest {}
 
 export interface ExportDeckInput {
   deck_id: number;

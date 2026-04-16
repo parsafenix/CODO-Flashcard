@@ -10,6 +10,7 @@ import { useToast } from "../../components/ui/ToastProvider";
 import { api } from "../../lib/api";
 import { getActiveFields, getCardValue } from "../../lib/deckFields";
 import { useI18n } from "../../lib/i18n";
+import { localizeAppMessage, localizeCardStatus } from "../../lib/messages";
 import { formatRelativeDate } from "../../lib/format";
 import type { CardFilter, CardRecord, CardSort, DeckSummary, ExportFormat } from "../../lib/types";
 import { CardFormModal } from "../cards/CardFormModal";
@@ -47,7 +48,10 @@ export function DeckDetailPage() {
       setCards(cardsResponse);
       setLoadError(null);
     } catch (err) {
-      const message = typeof err === "object" && err && "message" in err ? String(err.message) : t("deck.loadError");
+      const message = localizeAppMessage(
+        typeof err === "object" && err && "message" in err ? String(err.message) : t("deck.loadError"),
+        t
+      );
       setLoadError(message);
       notify(message, "error");
     }
@@ -277,7 +281,7 @@ export function DeckDetailPage() {
                     </td>
                   ))}
                   <td>
-                    <span className="pill">{card.status}</span>
+                    <span className="pill">{localizeCardStatus(card.status, t)}</span>
                   </td>
                   <td>{formatRelativeDate(card.next_review_at)}</td>
                   <td>{card.review_count === 0 ? "-" : `${Math.round((card.correct_count / card.review_count) * 100)}%`}</td>

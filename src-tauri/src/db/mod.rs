@@ -18,6 +18,8 @@ pub fn initialize_database(path: &Path) -> Result<()> {
   let connection = open_connection(path)?;
   migrations::run_migrations(&connection)?;
   repository::dynamic_repo::repair_dynamic_model(&connection)?;
+  repository::review_unit_repo::repair_review_units(&connection)?;
   repository::settings_repo::ensure_default_settings(&connection)?;
+  repository::scheduler_repo::ensure_default_profile(&connection)?;
   Ok(())
 }

@@ -1,4 +1,5 @@
 pub mod analytics_commands;
+pub mod calibration_commands;
 pub mod card_commands;
 pub mod deck_commands;
 pub mod import_commands;

@@ -6,7 +6,7 @@ This package contains the final offline Windows release for `CODO: Flashcard`.
 
 Run:
 
-- `CODO-Flashcard-Setup-v0.2.0-x64.exe`
+- `CODO-Flashcard-Setup-v0.5.0-x64.exe`
 
 This is the main Windows installer. Because the installer is configured for machine-wide installation, Windows may ask for administrator approval during setup.
 
@@ -14,7 +14,7 @@ This is the main Windows installer. Because the installer is configured for mach
 
 Top level:
 
-- `CODO-Flashcard-Setup-v0.2.0-x64.exe`
+- `CODO-Flashcard-Setup-v0.5.0-x64.exe`
   - Main NSIS installer
 - `README.md`
   - This guide
@@ -23,14 +23,14 @@ Top level:
 
 Inside `Data/`:
 
-- `CODO-Flashcard-v0.2.0-x64.msi`
+- `CODO-Flashcard-v0.5.0-x64.msi`
   - Alternative MSI installer
-- `CODO-Flashcard-v0.2.0-x64.exe`
+- `CODO-Flashcard-v0.5.0-x64.exe`
   - Standalone release executable
 
 ## Install steps
 
-1. Open `CODO-Flashcard-Setup-v0.2.0-x64.exe`
+1. Open `CODO-Flashcard-Setup-v0.5.0-x64.exe`
 2. Approve the administrator prompt if Windows shows it
 3. Finish the installer steps
 4. Launch `CODO: Flashcard` from Start Menu or Desktop shortcut

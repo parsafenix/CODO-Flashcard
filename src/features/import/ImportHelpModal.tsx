@@ -59,14 +59,17 @@ export function ImportHelpModal({ open, onClose }: ImportHelpModalProps) {
           <pre className="import-help__code" dir="auto">
             {exampleText}
           </pre>
+
           <div className="surface-muted import-help__note">
             <div className="surface-muted__label">{t("import.helpHeaderTitle")}</div>
             <p>{t("import.helpHeaderDescription")}</p>
           </div>
+
           <div className="surface-muted import-help__note">
             <div className="surface-muted__label">{t("import.helpRequiredTitle")}</div>
             <p>{t("import.helpRequiredDescription")}</p>
           </div>
+
           <div className="dialog-actions dialog-actions--start">
             <Button variant="secondary" onClick={() => void copyExample()}>
               {copied ? t("common.copied") : t("common.copyExample")}

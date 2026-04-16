@@ -14,10 +14,10 @@ LinkedIn: www.linkedin.com/in/parsa-falahati
 
 - Local deck, card, review, and settings persistence
 - UTF-8 TXT import with BOM and `\n` / `\r\n` support
-- Strict duplicate rejection based on the normalized 3-language tuple per deck
+- Strict duplicate rejection based on the normalized active required fields per deck
 - Persian-aware normalization and mixed RTL/LTR rendering
 - YekanBakh Persian font family bundled locally with the app
-- Quizlet-like spaced repetition implemented explicitly in Rust
+- Direction-level DSR / FSRS-style scheduling with Again / Hard / Good / Easy grading
 - Deck library, card CRUD, study sessions, session summary, export, backup, and reset controls
 
 ## Data rules

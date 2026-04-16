@@ -2,7 +2,10 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 
-use crate::models::types::{CompleteStudySessionInput, GradeCardResponse, SessionRecord, SessionSummary, StudySessionOptions, UiLanguage};
+use crate::models::types::{
+  CompleteStudySessionInput, ReviewRating, ReviewUnitRecord, ReviewUnitState, ReviewUnitUpdate, SessionRecord, SessionSummary,
+  StudySessionOptions, UiLanguage,
+};
 
 use super::dynamic_repo;
 
@@ -30,10 +33,16 @@ pub fn start_session(connection: &Connection, options: &StudySessionOptions) -> 
 pub fn record_review_history(
   connection: &Connection,
   session_id: i64,
-  response: &GradeCardResponse,
-  card: &crate::models::types::CardSchedulingRecord,
-  knew_it: bool,
+  review_unit: &ReviewUnitRecord,
+  rating: ReviewRating,
+  update: &ReviewUnitUpdate,
 ) -> Result<()> {
+  let previous_status = compatibility_status(review_unit.state, review_unit.mastered);
+  let new_status = compatibility_status(update.state, update.mastered);
+  let previous_interval_minutes = (review_unit.scheduled_interval_days * 24.0 * 60.0).round() as i64;
+  let new_interval_minutes = (update.scheduled_interval_days * 24.0 * 60.0).round() as i64;
+  let previous_mastery = compatibility_mastery_score(review_unit);
+  let new_mastery = compatibility_mastery_score_from_update(update);
   connection.execute(
     "INSERT INTO review_history (
       card_id,
@@ -51,53 +60,19 @@ pub fn record_review_history(
       new_mastery_score
     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
     params![
-      card.id,
-      card.deck_id,
+      review_unit.card_id,
+      review_unit.deck_id,
       session_id,
       now_utc(),
-      if knew_it { 1 } else { 0 },
-      card.status.as_str(),
-      response.status.as_str(),
-      card.current_interval_minutes,
-      response.current_interval_minutes,
-      card.ease_factor,
-      response.ease_factor,
-      card.mastery_score,
-      response.mastery_score
-    ],
-  )?;
-  Ok(())
-}
-
-pub fn apply_scheduling_update(
-  connection: &Connection,
-  card_id: i64,
-  update: &crate::models::types::SchedulingUpdate,
-) -> Result<()> {
-  connection.execute(
-    "UPDATE cards
-      SET status = ?1,
-          review_count = ?2,
-          correct_count = ?3,
-          wrong_count = ?4,
-          current_interval_minutes = ?5,
-          ease_factor = ?6,
-          mastery_score = ?7,
-          last_reviewed_at = ?8,
-          next_review_at = ?9,
-          updated_at = ?8
-      WHERE id = ?10",
-    params![
-      update.status.as_str(),
-      update.review_count,
-      update.correct_count,
-      update.wrong_count,
-      update.current_interval_minutes,
-      update.ease_factor,
-      update.mastery_score,
-      update.last_reviewed_at,
-      update.next_review_at,
-      card_id
+      if rating.is_success() { 1 } else { 0 },
+      previous_status.as_str(),
+      new_status.as_str(),
+      previous_interval_minutes,
+      new_interval_minutes,
+      compatibility_ease_factor(review_unit.difficulty),
+      compatibility_ease_factor(update.difficulty),
+      previous_mastery,
+      new_mastery
     ],
   )?;
   Ok(())
@@ -126,6 +101,7 @@ fn session_suggestion(language: UiLanguage, remaining_due_cards: i64, wrong_coun
 
 pub fn complete_session(connection: &Connection, input: &CompleteStudySessionInput, language: UiLanguage) -> Result<SessionSummary> {
   let now = now_utc();
+  let session = get_session_record(connection, input.session_id)?;
   let accuracy_percent = if input.studied_count == 0 {
     0
   } else {
@@ -158,9 +134,21 @@ pub fn complete_session(connection: &Connection, input: &CompleteStudySessionInp
   )?;
 
   let remaining_due_cards = connection.query_row(
-    "SELECT COUNT(*) FROM cards
-      WHERE deck_id = ?1 AND status != 'new' AND next_review_at IS NOT NULL AND next_review_at <= ?2",
-    params![input.deck_id, now],
+    "SELECT COUNT(*)
+      FROM review_units
+      WHERE deck_id = ?1
+        AND prompt_field_id = ?2
+        AND reveal_field_ids = ?3
+        AND suspended = 0
+        AND state != 'new'
+        AND due_at_utc IS NOT NULL
+        AND due_at_utc <= ?4",
+    params![
+      input.deck_id,
+      session.prompt_field_id,
+      dynamic_repo::serialize_reveal_field_ids(&session.reveal_field_ids),
+      now
+    ],
     |row| row.get::<_, i64>(0),
   )?;
 
@@ -181,15 +169,49 @@ pub fn complete_session(connection: &Connection, input: &CompleteStudySessionInp
 pub fn get_session_record(connection: &Connection, session_id: i64) -> Result<SessionRecord> {
   connection
     .query_row(
-      "SELECT id, deck_id FROM study_sessions WHERE id = ?1",
+      "SELECT id, deck_id, prompt_field_id, reveal_field_ids FROM study_sessions WHERE id = ?1",
       params![session_id],
       |row| {
         Ok(SessionRecord {
           id: row.get("id")?,
           deck_id: row.get("deck_id")?,
+          prompt_field_id: row.get("prompt_field_id")?,
+          reveal_field_ids: dynamic_repo::parse_reveal_field_ids(&row.get::<_, String>("reveal_field_ids")?),
         })
       },
     )
     .optional()?
     .context("Study session not found")
+}
+
+fn compatibility_status(state: ReviewUnitState, mastered: bool) -> crate::models::types::CardStatus {
+  if mastered {
+    return crate::models::types::CardStatus::Mastered;
+  }
+
+  match state {
+    ReviewUnitState::New => crate::models::types::CardStatus::New,
+    ReviewUnitState::Review => crate::models::types::CardStatus::Review,
+    ReviewUnitState::Learning | ReviewUnitState::Relearning | ReviewUnitState::Leech => crate::models::types::CardStatus::Learning,
+  }
+}
+
+fn compatibility_ease_factor(difficulty: f64) -> f64 {
+  (2.6 - ((difficulty - 5.0) * 0.18)).clamp(1.3, 3.0)
+}
+
+fn compatibility_mastery_score(unit: &ReviewUnitRecord) -> i64 {
+  if unit.mastered {
+    100
+  } else {
+    ((unit.stability.min(60.0) / 60.0) * 100.0).round() as i64
+  }
+}
+
+fn compatibility_mastery_score_from_update(update: &ReviewUnitUpdate) -> i64 {
+  if update.mastered {
+    100
+  } else {
+    ((update.stability.min(60.0) / 60.0) * 100.0).round() as i64
+  }
 }

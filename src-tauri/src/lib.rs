@@ -37,6 +37,9 @@ pub fn run() {
     })
     .invoke_handler(tauri::generate_handler![
       commands::analytics_commands::get_analytics,
+      commands::analytics_commands::get_daily_coach,
+      commands::calibration_commands::get_scheduler_calibration_status,
+      commands::calibration_commands::run_scheduler_calibration,
       commands::deck_commands::list_decks,
       commands::deck_commands::get_deck,
       commands::deck_commands::create_deck,
@@ -54,6 +57,8 @@ pub fn run() {
       commands::study_commands::complete_study_session,
       commands::settings_commands::get_settings,
       commands::settings_commands::update_settings,
+      commands::settings_commands::get_ui_preferences,
+      commands::settings_commands::update_ui_preferences,
       commands::settings_commands::create_backup,
       commands::settings_commands::reset_app_data,
       commands::settings_commands::open_data_folder,

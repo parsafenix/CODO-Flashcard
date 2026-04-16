@@ -4,12 +4,16 @@ import { useAppContext } from "../../app/AppContext";
 import { Button } from "../../components/ui/Button";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { EmptyState } from "../../components/ui/EmptyState";
+import { HiddenPanelsBar } from "../../components/ui/HiddenPanelsBar";
 import { StatCard } from "../../components/ui/StatCard";
 import { useToast } from "../../components/ui/ToastProvider";
 import { api } from "../../lib/api";
 import { formatRelativeDate } from "../../lib/format";
 import { useI18n } from "../../lib/i18n";
+import { localizeAppMessage } from "../../lib/messages";
+import { usePanelVisibility } from "../../lib/usePanelVisibility";
 import type { DeckLibrarySort, DeckSummary } from "../../lib/types";
+import { DailyCoachPanel } from "./DailyCoachPanel";
 import { ImportWizard } from "../import/ImportWizard";
 import { DeckFormModal } from "./DeckFormModal";
 import { sortDecks } from "./sorting";
@@ -28,6 +32,8 @@ export function DeckLibraryPage() {
   const [showImport, setShowImport] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [sort, setSort] = useState<DeckLibrarySort>("due_desc");
+  const coachPanels = [{ id: "daily-coach", label: t("coach.title") }];
+  const { visiblePanels, hiddenPanels, hidePanel, showPanel } = usePanelVisibility("library", coachPanels);
 
   async function loadDecks() {
     setLoading(true);
@@ -36,7 +42,10 @@ export function DeckLibraryPage() {
       setDecks(response);
       setLoadError(null);
     } catch (err) {
-      const message = typeof err === "object" && err && "message" in err ? String(err.message) : t("library.loadError");
+      const message = localizeAppMessage(
+        typeof err === "object" && err && "message" in err ? String(err.message) : t("library.loadError"),
+        t
+      );
       setLoadError(message);
       notify(message, "error");
     } finally {
@@ -141,6 +150,12 @@ export function DeckLibraryPage() {
         <StatCard label={t("library.stats.due")} value={dueCards} hint={t("library.stats.dueHint")} />
         <StatCard label={t("library.stats.new")} value={newCards} hint={t("library.stats.newHint")} />
       </section>
+
+      <HiddenPanelsBar panels={hiddenPanels} onShow={(panelId) => void showPanel(panelId)} />
+
+      {visiblePanels.some((panel) => panel.id === "daily-coach") ? (
+        <DailyCoachPanel onHide={() => void hidePanel("daily-coach")} />
+      ) : null}
 
       <section className="toolbar toolbar--compact">
         <label className="field field--grow">

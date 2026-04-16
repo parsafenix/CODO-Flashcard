@@ -1,6 +1,6 @@
 [package]
 name = "codo_flashcard"
-version = "0.2.0"
+version = "0.5.0"
 description = "CODO: Flashcard - local-first multilingual flashcard desktop app"
 authors = ["PARSA FALAHATI"]
 edition = "2021"

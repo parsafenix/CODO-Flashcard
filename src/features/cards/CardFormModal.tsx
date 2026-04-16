@@ -3,6 +3,7 @@ import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
 import { getActiveFields, getCardValue } from "../../lib/deckFields";
 import { useI18n } from "../../lib/i18n";
+import { localizeAppMessage } from "../../lib/messages";
 import type { NormalizedApiError } from "../../lib/api";
 import type { CardRecord, DeckSummary } from "../../lib/types";
 
@@ -62,7 +63,7 @@ export function CardFormModal({ open, deck, initialCard, onClose, onSubmit }: Ca
         apiError?.code === "duplicate_card"
           ? t("cardform.duplicate")
           : typeof apiError?.message === "string"
-            ? apiError.message
+            ? localizeAppMessage(apiError.message, t)
             : t("cardform.error");
       if (apiError?.field === "values") {
         setFieldError(message);

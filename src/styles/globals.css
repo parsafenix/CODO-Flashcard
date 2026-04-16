@@ -366,6 +366,47 @@ textarea {
   margin-top: 0.25rem;
 }
 
+.dashboard-panel {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.dashboard-panel__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  padding-bottom: 0.2rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+}
+
+.dashboard-panel__title-group {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.dashboard-panel__title-group h2,
+.dashboard-panel__title-group p {
+  overflow-wrap: anywhere;
+}
+
+.dashboard-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.65rem;
+}
+
+.dashboard-panel__body {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
 .stat-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -806,6 +847,26 @@ textarea {
   gap: 1rem;
 }
 
+.panel-masonry {
+  column-count: 2;
+  column-gap: 1rem;
+  align-items: start;
+}
+
+.panel-masonry__item {
+  display: inline-block;
+  width: 100%;
+  margin: 0 0 1rem;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.hidden-panels-bar {
+  display: grid;
+  gap: 0.8rem;
+  margin-bottom: 1rem;
+}
+
 .analytics-overview-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
@@ -842,6 +903,16 @@ textarea {
 .analytics-card-preview {
   display: grid;
   gap: 0.4rem;
+}
+
+.analytics-card-preview__row {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.analytics-card-preview__row--context {
+  padding-top: 0.2rem;
+  border-top: 1px dashed var(--border);
 }
 
 .segmented-control {
@@ -976,6 +1047,61 @@ textarea {
   padding-inline-start: 1.1rem;
 }
 
+.form-helper-text {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.92rem;
+  line-height: 1.55;
+  text-align: start;
+}
+
+.coach-card,
+.coach-list__item {
+  display: grid;
+  gap: 0.9rem;
+  padding: 1rem 1.05rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-soft) 68%, var(--bg-elevated));
+}
+
+.coach-card--prompt {
+  border-color: color-mix(in srgb, var(--primary) 34%, var(--border));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--primary) 12%, transparent), transparent 54%),
+    color-mix(in srgb, var(--bg-soft) 70%, var(--bg-elevated));
+}
+
+.coach-card__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.coach-card__head h3 {
+  margin: 0.15rem 0 0;
+  font-size: 1.25rem;
+  line-height: 1.3;
+}
+
+.coach-card p,
+.coach-list__item p {
+  margin: 0;
+  color: var(--text-soft);
+  line-height: 1.55;
+}
+
+.coach-list {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.coach-list__item strong {
+  display: inline-block;
+  margin-bottom: 0.25rem;
+}
+
 .settings-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   margin-bottom: 1.5rem;
@@ -1035,9 +1161,7 @@ textarea {
 @media (max-width: 1180px) {
   .app-shell,
   .study-layout,
-  .analytics-grid,
   .analytics-overview-grid,
-  .settings-grid,
   .stat-grid,
   .deck-grid,
   .field-grid--dual,
@@ -1059,12 +1183,22 @@ textarea {
     border-bottom: 1px solid var(--border);
   }
 
+  .panel-masonry {
+    column-count: 1;
+  }
+
   .reminder-banner {
     flex-direction: column;
     align-items: stretch;
   }
 
   .field-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .dashboard-panel__header,
+  .coach-card__head {
     flex-direction: column;
     align-items: stretch;
   }

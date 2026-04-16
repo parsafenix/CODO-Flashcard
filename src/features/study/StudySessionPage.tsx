@@ -11,7 +11,8 @@ import { activeFieldLabel, defaultPromptFieldId, defaultRevealFieldIds, getActiv
 import { formatAccuracy } from "../../lib/format";
 import { useI18n } from "../../lib/i18n";
 import { useKeyboardShortcut } from "../../lib/keyboard";
-import type { DeckSummary, SessionSummary, StudyCard, StudyMode, StudySessionOptions, StudySessionPayload } from "../../lib/types";
+import { localizeAppMessage } from "../../lib/messages";
+import type { DeckSummary, ReviewRating, SessionSummary, StudyCard, StudyMode, StudySessionOptions, StudySessionPayload } from "../../lib/types";
 import { buildStudyDirectionPreview } from "./setupSummary";
 
 function getVisibleFieldIds(options: StudySessionOptions) {
@@ -46,6 +47,7 @@ export function StudySessionPage() {
   const [stats, setStats] = useState({ studied: 0, correct: 0, wrong: 0, newlyMastered: 0 });
   const [requeueCounts, setRequeueCounts] = useState<Record<number, number>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [cardShownAt, setCardShownAt] = useState<number>(() => Date.now());
   const [options, setOptions] = useState<StudySessionOptions>({
     deck_id: deckId,
     prompt_field_id: 0,
@@ -75,7 +77,10 @@ export function StudySessionPage() {
         setLoadError(null);
       })
       .catch((err) => {
-        const message = typeof err === "object" && err && "message" in err ? String(err.message) : t("deck.loadError");
+        const message = localizeAppMessage(
+          typeof err === "object" && err && "message" in err ? String(err.message) : t("deck.loadError"),
+          t
+        );
         setLoadError(message);
         notify(message, "error");
       });
@@ -92,9 +97,17 @@ export function StudySessionPage() {
   );
 
   useKeyboardShortcut([" ", "Enter"], () => setRevealed(true), Boolean(currentCard && !revealed));
-  useKeyboardShortcut(["ArrowRight", "k", "K"], () => void handleGrade(true), Boolean(currentCard && revealed));
-  useKeyboardShortcut(["ArrowLeft", "d", "D"], () => void handleGrade(false), Boolean(currentCard && revealed));
+  useKeyboardShortcut(["1", "a", "A", "ArrowLeft"], () => void handleGrade("again"), Boolean(currentCard && revealed));
+  useKeyboardShortcut(["2", "h", "H"], () => void handleGrade("hard"), Boolean(currentCard && revealed));
+  useKeyboardShortcut(["3", "g", "G", "ArrowRight"], () => void handleGrade("good"), Boolean(currentCard && revealed));
+  useKeyboardShortcut(["4", "e", "E", "ArrowUp"], () => void handleGrade("easy"), Boolean(currentCard && revealed));
   useKeyboardShortcut(["Escape"], () => navigate(`/decks/${deckId}`), true);
+
+  useEffect(() => {
+    if (currentCard) {
+      setCardShownAt(Date.now());
+    }
+  }, [currentCard?.review_unit_id]);
 
   async function startSession() {
     if (!options.prompt_field_id || options.reveal_field_ids.length === 0) {
@@ -111,12 +124,16 @@ export function StudySessionPage() {
       setSession(payload);
       setQueue(payload.cards);
       setRevealed(false);
+      setCardShownAt(Date.now());
       setLoadError(null);
       if (payload.cards.length === 0) {
         notify(t("study.errorNoCards"), "info");
       }
     } catch (err) {
-      const message = typeof err === "object" && err && "message" in err ? String(err.message) : t("study.errorStart");
+      const message = localizeAppMessage(
+        typeof err === "object" && err && "message" in err ? String(err.message) : t("study.errorStart"),
+        t
+      );
       setLoadError(message);
       notify(message, "error");
     } finally {
@@ -124,36 +141,44 @@ export function StudySessionPage() {
     }
   }
 
-  async function handleGrade(knewIt: boolean) {
+  async function handleGrade(rating: ReviewRating) {
     if (!session || !currentCard) {
       return;
     }
 
+    const latencyMs = Math.max(0, Date.now() - cardShownAt);
     let response;
     try {
       response = await api.gradeCard({
         session_id: session.session_id,
         card_id: currentCard.id,
-        knew_it: knewIt,
+        review_unit_id: currentCard.review_unit_id,
+        rating,
+        latency_ms: latencyMs,
+        hint_used: false,
       });
     } catch (err) {
-      const message = typeof err === "object" && err && "message" in err ? String(err.message) : t("study.errorGrade");
+      const message = localizeAppMessage(
+        typeof err === "object" && err && "message" in err ? String(err.message) : t("study.errorGrade"),
+        t
+      );
       notify(message, "error");
       return;
     }
 
+    const wasCorrect = rating !== "again";
     const nextStudied = stats.studied + 1;
-    const nextCorrect = stats.correct + (knewIt ? 1 : 0);
-    const nextWrong = stats.wrong + (knewIt ? 0 : 1);
+    const nextCorrect = stats.correct + (wasCorrect ? 1 : 0);
+    const nextWrong = stats.wrong + (wasCorrect ? 0 : 1);
     const nextNewlyMastered = stats.newlyMastered + (response.newly_mastered ? 1 : 0);
 
     const remaining = queue.slice(1);
-    if (!knewIt && (requeueCounts[currentCard.id] ?? 0) < maxSessionRequeues) {
-      const insertIndex = Math.min(2, remaining.length);
+    if (rating === "again" && (requeueCounts[currentCard.review_unit_id] ?? 0) < maxSessionRequeues) {
+      const insertIndex = Math.min(3, remaining.length);
       remaining.splice(insertIndex, 0, currentCard);
       setRequeueCounts((current) => ({
         ...current,
-        [currentCard.id]: (current[currentCard.id] ?? 0) + 1,
+        [currentCard.review_unit_id]: (current[currentCard.review_unit_id] ?? 0) + 1,
       }));
     }
     setQueue(remaining);
@@ -177,7 +202,10 @@ export function StudySessionPage() {
         });
         setSummary(nextSummary);
       } catch (err) {
-        const message = typeof err === "object" && err && "message" in err ? String(err.message) : t("study.errorComplete");
+        const message = localizeAppMessage(
+          typeof err === "object" && err && "message" in err ? String(err.message) : t("study.errorComplete"),
+          t
+        );
         notify(message, "error");
       }
     }
@@ -344,8 +372,10 @@ export function StudySessionPage() {
                   <div className="surface-muted__label">{t("study.keyboard")}</div>
                   <div className="detail-inline-stats">
                     <span>{t("study.keyboardReveal")}</span>
-                    <span>{t("study.keyboardKnew")}</span>
-                    <span>{t("study.keyboardDidntKnow")}</span>
+                    <span>{t("study.keyboardAgain")}</span>
+                    <span>{t("study.keyboardHard")}</span>
+                    <span>{t("study.keyboardGood")}</span>
+                    <span>{t("study.keyboardEasy")}</span>
                   </div>
                 </div>
 
@@ -388,7 +418,12 @@ export function StudySessionPage() {
             </div>
 
             <article className={`flashcard ${revealed ? "flashcard--revealed" : ""}`}>
-              <div className="flashcard__label">{activeFieldLabel(activeFields, frontFieldId)}</div>
+              <div className="flashcard__label">
+                {activeFieldLabel(activeFields, frontFieldId)}
+                <span className={`pill ${currentCard.leech ? "pill--danger" : ""}`}>
+                  {currentCard.leech ? t("study.stateLeech") : t(`study.state.${currentCard.review_state}`)}
+                </span>
+              </div>
               <div className="flashcard__prompt">
                 <FieldText value={frontValue} />
               </div>
@@ -420,6 +455,10 @@ export function StudySessionPage() {
                         ))}
                     </div>
                   ) : null}
+                  <div className="flashcard__review-meta">
+                    <span>{t("study.metaDifficulty", { value: currentCard.difficulty.toFixed(1) })}</span>
+                    <span>{t("study.metaStability", { value: currentCard.stability_days.toFixed(1) })}</span>
+                  </div>
                 </div>
               ) : (
                 <button className="reveal-button" onClick={() => setRevealed(true)}>
@@ -429,11 +468,17 @@ export function StudySessionPage() {
             </article>
 
             <div className="study-actions">
-              <Button variant="danger" disabled={!revealed} onClick={() => void handleGrade(false)}>
-                {t("study.didntKnow")}
+              <Button variant="danger" disabled={!revealed} onClick={() => void handleGrade("again")}>
+                {t("study.again")}
               </Button>
-              <Button disabled={!revealed} onClick={() => void handleGrade(true)}>
-                {t("study.knew")}
+              <Button variant="secondary" disabled={!revealed} onClick={() => void handleGrade("hard")}>
+                {t("study.hard")}
+              </Button>
+              <Button disabled={!revealed} onClick={() => void handleGrade("good")}>
+                {t("study.good")}
+              </Button>
+              <Button variant="ghost" disabled={!revealed} onClick={() => void handleGrade("easy")}>
+                {t("study.easy")}
               </Button>
             </div>
           </div>

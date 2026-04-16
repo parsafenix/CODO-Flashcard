@@ -1,9 +1,11 @@
 use anyhow::Result;
 use rusqlite::{params, Connection};
 
-const MIGRATIONS: [(&str, &str); 2] = [
+const MIGRATIONS: [(&str, &str); 4] = [
   ("001_initial.sql", include_str!("../../migrations/001_initial.sql")),
   ("002_dynamic_fields.sql", include_str!("../../migrations/002_dynamic_fields.sql")),
+  ("003_review_units.sql", include_str!("../../migrations/003_review_units.sql")),
+  ("004_scheduler_calibration.sql", include_str!("../../migrations/004_scheduler_calibration.sql")),
 ];
 
 pub fn run_migrations(connection: &Connection) -> Result<()> {
